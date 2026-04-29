@@ -4,17 +4,17 @@
 #include <termios.h>
 #include <unistd.h>
 #include "barcos.h"
+#include "calendarizador.h"
 
 #define MAX_POR_LADO 4
+#define QUANTUM_DEFAULT 3
 
-// ─── Colas separadas por lado ─────────────────────────────────────────────────
 Barco cola_izq[MAX_POR_LADO];
 Barco cola_der[MAX_POR_LADO];
-int total_izq  = 0;
-int total_der  = 0;
+int total_izq   = 0;
+int total_der   = 0;
 int id_contador = 1;
 
-// ─── Lectura de tecla sin Enter ───────────────────────────────────────────────
 char leer_tecla() {
     struct termios old, new;
     tcgetattr(STDIN_FILENO, &old);
@@ -26,18 +26,15 @@ char leer_tecla() {
     return c;
 }
 
-// ─── Agregar barco a la cola correspondiente ──────────────────────────────────
 void agregar_barco(int tipo, int lado) {
-    int* total = (lado == LADO_IZQUIERDA) ? &total_izq : &total_der;
-    Barco* cola = (lado == LADO_IZQUIERDA) ? cola_izq : cola_der;
-    const char* nombre_lado = (lado == LADO_IZQUIERDA) ? "Izquierda" : "Derecha";
+    int*   total      = (lado == LADO_IZQUIERDA) ? &total_izq : &total_der;
+    Barco* cola       = (lado == LADO_IZQUIERDA) ? cola_izq   : cola_der;
+    const char* nombre = (lado == LADO_IZQUIERDA) ? "Izquierda" : "Derecha";
 
     if (*total >= MAX_POR_LADO) {
-        printf("Cola %s llena (máximo %d barcos por lado).\n",
-               nombre_lado, MAX_POR_LADO);
+        printf("Cola %s llena (máximo %d).\n", nombre, MAX_POR_LADO);
         return;
     }
-
     int tick_llegada = total_izq + total_der;
     cola[*total] = barco_crear(id_contador++, tipo, lado,
                                5, 10, 30, tick_llegada);
@@ -46,12 +43,6 @@ void agregar_barco(int tipo, int lado) {
     (*total)++;
 }
 
-// ─── Carga desde archivo de configuración ────────────────────────────────────
-// Formato: lado tipo  (una línea por barco)
-// Ejemplo:
-//   0 1  -> izquierda, normal
-//   1 2  -> derecha, pesquero
-//   0 3  -> izquierda, patrulla
 void cargar_config(const char* archivo) {
     FILE* f = fopen(archivo, "r");
     if (!f) {
@@ -70,7 +61,6 @@ void cargar_config(const char* archivo) {
     printf("\nCarga previa: %d izquierda, %d derecha.\n", total_izq, total_der);
 }
 
-// ─── Mostrar colas ────────────────────────────────────────────────────────────
 void mostrar_cola() {
     printf("\n─── Cola Izquierda (%d/%d) ───────────────────────────────\n",
            total_izq, MAX_POR_LADO);
@@ -79,7 +69,6 @@ void mostrar_cola() {
         barco_imprimir(&cola_izq[i]);
         printf("\n");
     }
-
     printf("─── Cola Derecha (%d/%d) ─────────────────────────────────\n",
            total_der, MAX_POR_LADO);
     if (total_der == 0) printf("  Vacía\n");
@@ -89,17 +78,16 @@ void mostrar_cola() {
     }
 }
 
-// ─── Menú ─────────────────────────────────────────────────────────────────────
 void menu_teclado() {
-    printf("\n─── Generación por tecla ───────────────────────────────\n");
-    printf("  Lado:  I = Izquierda   D = Derecha\n");
-    printf("  Tipo:  1 = Normal      2 = Pesquero   3 = Patrulla\n");
-    printf("  W     = ver colas\n");
-    printf("  Q     = salir\n");
+    printf("\n─── Controles ──────────────────────────────────────────\n");
+    printf("  I = generar barco Izquierda   D = generar barco Derecha\n");
+    printf("  1 = Normal   2 = Pesquero     3 = Patrulla\n");
+    printf("  W = ver colas\n");
+    printf("  R = ejecutar Round Robin\n");
+    printf("  Q = salir\n");
     printf("────────────────────────────────────────────────────────\n");
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
 int main(int argc, char* argv[]) {
     printf("=== Scheduling Ships ===\n\n");
 
@@ -124,13 +112,31 @@ int main(int argc, char* argv[]) {
         switch (c) {
             case 'i': case 'I': lado = LADO_IZQUIERDA; break;
             case 'd': case 'D': lado = LADO_DERECHA;   break;
-            case 'w': case 'W': mostrar_cola();         continue;
+
+            case 'w': case 'W':
+                mostrar_cola();
+                continue;
+
+            case 'r': case 'R':
+                printf("RR sobre qué cola? (I=Izquierda D=Derecha): ");
+                fflush(stdout);
+                char lado_rr = leer_tecla();
+                printf("%c\n", lado_rr);
+                if (lado_rr == 'i' || lado_rr == 'I')
+                    rr(cola_izq, total_izq, QUANTUM_DEFAULT);
+                else if (lado_rr == 'd' || lado_rr == 'D')
+                    rr(cola_der, total_der, QUANTUM_DEFAULT);
+                else
+                    printf("Opción inválida.\n");
+                continue;
+
             case 'q': case 'Q':
                 printf("Saliendo...\n");
                 corriendo = 0;
                 continue;
+
             default:
-                printf("Tecla no reconocida. Usa I, D, W o Q.\n");
+                printf("Tecla no reconocida.\n");
                 continue;
         }
 
@@ -138,11 +144,10 @@ int main(int argc, char* argv[]) {
         fflush(stdout);
         char t = leer_tecla();
         printf("%c\n", t);
-        if (t >= '1' && t <= '3') {
+        if (t >= '1' && t <= '3')
             agregar_barco(t - '0', lado);
-        } else {
+        else
             printf("Tipo inválido.\n");
-        }
     }
 
     return 0;

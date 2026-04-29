@@ -1,7 +1,7 @@
 CC     = gcc
 CFLAGS = -Wall -Wextra -g
 TARGET = scheduling_ships
-SRCS   = main.c barcos.c
+SRCS   = main.c barcos.c calendarizador.c
 OBJS   = $(SRCS:.c=.o)
 
 all: $(TARGET)
