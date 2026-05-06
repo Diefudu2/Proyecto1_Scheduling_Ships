@@ -1,24 +1,41 @@
-# Makefile – Scheduling Ships (CE 4303 TEC)
+# Makefile – Scheduling Ships
+# CE 4303 – Principios de Sistemas Operativos
 
 CC      = gcc
-CFLAGS  = -Wall -Wextra -g -I./include
-LDFLAGS = -lrt
+CFLAGS  = -Wall -Wextra -g -O0 -Iinclude
+LDFLAGS = -lpthread -lncurses
 
-SRC     = src/scheduler.c
-OBJ     = $(SRC:.c=.o)
+SRC_DIR  = src
+BUILD    = build
 
-TEST_SRC = tests/test_schedulers.c
-TEST_BIN = test_schedulers
+SRCS = $(SRC_DIR)/ship.c \
+       $(SRC_DIR)/canal.c \
+       $(SRC_DIR)/gui.c \
+       $(SRC_DIR)/main.c
 
-.PHONY: all test clean
+OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD)/%.o, $(SRCS))
 
-all: $(TEST_BIN)
+TARGET = $(BUILD)/ships
 
-$(TEST_BIN): $(SRC) $(TEST_SRC) include/thread_lib.h
-	$(CC) $(CFLAGS) $(SRC) $(TEST_SRC) -o $(TEST_BIN) $(LDFLAGS)
+.PHONY: all clean install
 
-test: $(TEST_BIN)
-	./$(TEST_BIN)
+all: $(BUILD) $(TARGET)
+
+$(BUILD):
+	mkdir -p $(BUILD)
+
+$(BUILD)/%.o: $(SRC_DIR)/%.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+	@echo ""
+	@echo "  Compilacion exitosa -> $(TARGET)"
+	@echo "  Ejecutar: ./$(TARGET)"
+	@echo ""
+
+install: all
+	cp $(TARGET) /usr/local/bin/ships
 
 clean:
-	rm -f $(TEST_BIN) src/*.o
+	rm -rf $(BUILD)

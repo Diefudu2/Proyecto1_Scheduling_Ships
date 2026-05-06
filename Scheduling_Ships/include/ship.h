@@ -1,72 +1,86 @@
 #ifndef SHIP_H
 #define SHIP_H
 
-#include "thread_lib.h"
+#include <pthread.h>
 
-/* ─── Ship types ─────────────────────────────────────────────── */
+/* ── Tipos de barco ─────────────────────────────────────────────── */
 typedef enum {
-    SHIP_NORMAL,    /* Slowest, no special treatment               */
-    SHIP_FISHING,   /* Faster than normal                          */
-    SHIP_PATROL     /* Fastest, hard real-time (EDF / urgent)      */
+    SHIP_NORMAL  = 0,
+    SHIP_FISHING = 1,
+    SHIP_PATROL  = 2
 } ShipType;
 
-/* ─── Direction ──────────────────────────────────────────────── */
+/* ── Dirección ──────────────────────────────────────────────────── */
 typedef enum {
-    DIR_LEFT_TO_RIGHT = 0,
-    DIR_RIGHT_TO_LEFT = 1
+    DIR_LEFT  = 0,
+    DIR_RIGHT = 1
 } Direction;
 
-/* ─── Speed constants (arbitrary units, used for animation/sim) ─ */
-#define SPEED_NORMAL   1
-#define SPEED_FISHING  2
-#define SPEED_PATROL   4
+/* ── Estado del barco ───────────────────────────────────────────── */
+typedef enum {
+    STATE_WAITING  = 0,
+    STATE_CROSSING = 1,
+    STATE_DONE     = 2
+} ShipState;
 
-/* ─── Ship data (passed as arg to the thread function) ──────── */
-typedef struct {
-    int       ship_id;
-    ShipType  type;
-    Direction direction;
-    int       canal_length;   /* Cells / pixels to traverse       */
-    int       position;       /* Current position in canal (0..N) */
-    int       tid;            /* Thread ID assigned by lib        */
-    long long created_at;     /* Timestamp of creation (ms)       */
+/* ── Velocidades (ms por unidad de canal) ────────────────────────*/
+#define SPEED_NORMAL   120
+#define SPEED_FISHING   70
+#define SPEED_PATROL    35
+
+/* ── Prioridades ─────────────────────────────────────────────────*/
+#define PRIORITY_NORMAL   1
+#define PRIORITY_FISHING  5
+#define PRIORITY_PATROL  10
+
+/* ── Estructura principal del barco ──────────────────────────────*/
+typedef struct Ship {
+    int        id;
+    ShipType   type;
+    Direction  direction;
+    ShipState  state;
+
+    int        position;
+    int        canal_length;
+    int        speed_ms;
+    int        priority;
+    int        burst_ms;
+    int        deadline_ms;
+
+    long long  arrival_time;
+    long long  start_time;
+    long long  finish_time;
+
+    pthread_t  thread;
+    int        tid_created;
+
+    struct Ship *next;
 } Ship;
 
-/* ─── Ship factory ───────────────────────────────────────────── */
+/* ── Cola de barcos ──────────────────────────────────────────────*/
+typedef struct {
+    Ship           *head;
+    Ship           *tail;
+    int             count;
+    pthread_mutex_t lock;
+} ShipQueue;
 
-/**
- * Create a ship thread.
- * The ship's type determines default priority, speed and deadline.
- *
- * @param type          SHIP_NORMAL / SHIP_FISHING / SHIP_PATROL
- * @param direction     Which side of the canal it originates from
- * @param canal_length  Length of the canal in simulation units
- * @param deadline_ms   Max time to cross (0 = not real-time)
- * @return              Pointer to allocated Ship struct, or NULL on error
- */
-Ship *ship_create(ShipType type, Direction direction,
-                  int canal_length, int deadline_ms);
+/* ── API ─────────────────────────────────────────────────────────*/
+Ship       *ship_create          (ShipType type, Direction dir,
+                                  int canal_length, int deadline_ms);
+void        ship_destroy         (Ship *s);
 
-/**
- * The thread entry point – simulates crossing the canal.
- * Passed as `func` to thread_create.
- */
-void ship_run(void *arg);
+void        queue_init           (ShipQueue *q);
+void        queue_destroy        (ShipQueue *q);
+void        queue_push           (ShipQueue *q, Ship *s);
+Ship       *queue_pop            (ShipQueue *q);
+Ship       *queue_peek           (ShipQueue *q);
 
-/**
- * Return a human-readable name for a ship type.
- */
-const char *ship_type_name(ShipType t);
-
-/**
- * Return the base priority of a ship type.
- * PATROL > FISHING > NORMAL
- */
-int ship_default_priority(ShipType t);
-
-/**
- * Return the simulated burst time (cross time) in ms for a ship type.
- */
-int ship_default_burst(ShipType t, int canal_length);
+const char *ship_type_name       (ShipType t);
+char        ship_type_char       (ShipType t);
+int         ship_default_speed   (ShipType t);
+int         ship_default_priority(ShipType t);
+int         ship_default_burst   (ShipType t, int canal_length);
+long long   now_ms               (void);
 
 #endif /* SHIP_H */
