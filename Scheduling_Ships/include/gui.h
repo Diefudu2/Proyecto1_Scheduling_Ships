@@ -39,4 +39,4 @@ void  gui_log           (GuiState *g, const char *fmt, ...);
 void *gui_render_thread (void *arg);
 int   gui_handle_input  (GuiState *g);
 
-#endif /* GUI_H */
+#endif 

@@ -83,4 +83,4 @@ int         ship_default_priority(ShipType t);
 int         ship_default_burst   (ShipType t, int canal_length);
 long long   now_ms               (void);
 
-#endif /* SHIP_H */
+#endif 

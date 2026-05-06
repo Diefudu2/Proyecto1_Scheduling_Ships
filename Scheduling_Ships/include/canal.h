@@ -58,4 +58,4 @@ void *canal_letrero_thread     (void *arg);
 void *canal_flow_controller    (void *arg);
 void  canal_print_status       (Canal *c);
 
-#endif /* CANAL_H */
+#endif 
