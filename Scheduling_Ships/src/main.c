@@ -519,6 +519,14 @@ int main(int argc, char *argv[])
 
     start_flow_threads(canal);
 
+    fprintf(stderr,
+        "[DEBUG] flow_algo=%d | canal_length=%d | queue_visible=%d | equidad_w=%d | letrero_ms=%d\n",
+        canal->config.flow_algo,
+        canal->config.canal_length,
+        canal->config.queue_visible,
+        canal->config.equidad_w,
+        canal->config.letrero_ms);
+
     int loaded = 0;
 
     loaded += load_ships_from_file("config/ships_left.txt");
