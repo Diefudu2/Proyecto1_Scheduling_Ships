@@ -115,7 +115,6 @@ static void wake_eligible(Canal *c, ShipQueue *q)
     }
 
     Ship *s = q->head;
-<<<<<<< Updated upstream
     while (s) {
         Ship *next = s->next;
         if (can_enter_locked(c, s) && s->uth &&
@@ -128,19 +127,7 @@ static void wake_eligible(Canal *c, ShipQueue *q)
             sched_add(g_scheduler, s->uth);
         }
         s = next;
-=======
 
-    if (!s) {
-        return;
-    }
-
-    if (can_enter_locked(c, s) &&
-        s->uth &&
-        s->uth->state == UTHREAD_BLOCKED) {
-
-        s->uth->state = UTHREAD_READY;
-        sched_add(g_scheduler, s->uth);
->>>>>>> Stashed changes
     }
 }
 /*static void wake_ship_if_blocked(Ship *s)
