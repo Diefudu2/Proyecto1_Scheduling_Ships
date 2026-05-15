@@ -214,7 +214,18 @@ int canal_can_enter(Canal *c, Ship *s)
     }
 
     /*
-     * Si el canal esta libre, puede aceptar cualquier direccion.
+     * TICO:
+     * No hay control rigido de direccion.
+     * Si el canal esta libre, puede entrar cualquier lado.
+     */
+    if (c->config.flow_algo == FLOW_TICO) {
+        pthread_mutex_unlock(&c->mutex);
+        return 1;
+    }
+
+    /*
+     * Si el canal esta libre y no se ha fijado direccion,
+     * puede entrar cualquier direccion.
      */
     if (c->state.direction == CANAL_DIR_FREE) {
         pthread_mutex_unlock(&c->mutex);
@@ -222,7 +233,8 @@ int canal_can_enter(Canal *c, Ship *s)
     }
 
     /*
-     * Si se usa LETRERO o EQUIDAD, respetar la direccion activa.
+     * LETRERO / EQUIDAD:
+     * Respetar la direccion activa.
      */
     if (s->dir == DIR_LEFT && c->state.direction == CANAL_DIR_LEFT) {
         pthread_mutex_unlock(&c->mutex);
@@ -630,11 +642,40 @@ void canal_interrupt(Canal *c)
 
 FlowAlgo flow_algo_from_str(const char *str)
 {
+    if (!str) return FLOW_TICO;
+
     if (strcmp(str, "EQUIDAD") == 0) return FLOW_EQUIDAD;
     if (strcmp(str, "LETRERO") == 0) return FLOW_LETRERO;
     if (strcmp(str, "TICO")    == 0) return FLOW_TICO;
     fprintf(stderr, "flow_algo_from_str: algoritmo desconocido '%s'\n", str);
     return FLOW_EQUIDAD;   /* default seguro */
+}
+
+static void trim(char *s)
+{
+    if (!s) return;
+
+    /* Quitar espacios iniciales */
+    char *start = s;
+    while (*start == ' ' || *start == '\t') {
+        start++;
+    }
+
+    if (start != s) {
+        memmove(s, start, strlen(start) + 1);
+    }
+
+    /* Quitar espacios finales, \n y \r */
+    size_t n = strlen(s);
+
+    while (n > 0 &&
+           (s[n - 1] == ' '  ||
+            s[n - 1] == '\t' ||
+            s[n - 1] == '\n' ||
+            s[n - 1] == '\r')) {
+        s[n - 1] = '\0';
+        n--;
+    }
 }
 
 Canal *canal_load_config(const char *filepath)
@@ -646,33 +687,60 @@ Canal *canal_load_config(const char *filepath)
     }
 
     CanalConfig cfg = {
-        .flow_algo     = FLOW_EQUIDAD,
-        .canal_length  = 50,
-        .max_ships     = 8,
+        .flow_algo     = FLOW_TICO,
+        .canal_length  = 12,
+        .max_ships     = 1,
         .queue_visible = 4,
-        .letrero_ms    = 5000,
+        .letrero_ms    = 4000,
         .equidad_w     = 3,
     };
 
-    char key[64], val[64];
-    while (fscanf(f, "%63s = %63s", key, val) == 2) {
-        if (key[0] == '#') { /* línea de comentario */ continue; }
+    char line[256];
 
-        if      (strcmp(key, "flow_algo")     == 0)
+    while (fgets(line, sizeof(line), f)) {
+        trim(line);
+
+        if (line[0] == '\0' || line[0] == '#') {
+            continue;
+        }
+
+        char *eq = strchr(line, '=');
+        if (!eq) {
+            continue;
+        }
+
+        *eq = '\0';
+
+        char *key = line;
+        char *val = eq + 1;
+
+        trim(key);
+        trim(val);
+
+        if (strcmp(key, "flow_algo") == 0) {
             cfg.flow_algo = flow_algo_from_str(val);
-        else if (strcmp(key, "canal_length")  == 0)
+        } else if (strcmp(key, "canal_length") == 0) {
             cfg.canal_length = atoi(val);
-        else if (strcmp(key, "max_ships")     == 0)
+        } else if (strcmp(key, "max_ships") == 0) {
             cfg.max_ships = atoi(val);
-        else if (strcmp(key, "queue_visible") == 0)
+        } else if (strcmp(key, "queue_visible") == 0) {
             cfg.queue_visible = atoi(val);
-        else if (strcmp(key, "letrero_ms")    == 0)
+        } else if (strcmp(key, "letrero_ms") == 0) {
             cfg.letrero_ms = atoi(val);
-        else if (strcmp(key, "equidad_w")     == 0)
+        } else if (strcmp(key, "equidad_w") == 0) {
             cfg.equidad_w = atoi(val);
-        /* Parámetros del scheduler son leídos por main.c */
+        }
     }
 
     fclose(f);
+
+    if (cfg.queue_visible <= 0 || cfg.queue_visible > 4) {
+        cfg.queue_visible = 4;
+    }
+
+    if (cfg.max_ships <= 0) {
+        cfg.max_ships = 1;
+    }
+
     return canal_create(&cfg);
 }

@@ -29,7 +29,7 @@
  * Cada barco se ejecuta como UThread, no como pthread.
  * ========================================================= */
 
-#define SHIP_TICK_MS 100
+#define SHIP_TICK_MS 300
 
 static int  g_ship_id_counter = 1;
 static long g_arrival_seq     = 0;
