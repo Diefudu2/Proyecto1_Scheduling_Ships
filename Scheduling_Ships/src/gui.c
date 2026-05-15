@@ -554,6 +554,12 @@ int gui_handle_input(GuiState *g)
             canal_interrupt(g->canal);
             break;
 
+        case 'r':
+        case 'R':
+            gui_log(g, "Interrupcion liberada");
+            canal_clear_interrupt(g->canal);
+            break;
+
         default:
             break;
     }

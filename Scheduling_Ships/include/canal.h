@@ -194,6 +194,7 @@ void  canal_set_direction(Canal *c, CanalDir dir);
  * scheduler los vuelva a considerar.
  * --------------------------------------------------------- */
 void canal_interrupt(Canal *c);
+void canal_clear_interrupt(Canal *c);
 
 
 /* ---------------------------------------------------------

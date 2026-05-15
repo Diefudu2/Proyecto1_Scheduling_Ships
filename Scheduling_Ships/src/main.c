@@ -175,26 +175,44 @@ static void *hardware_render_thread(void *arg)
         return NULL;
     }
 
+    int last_sensor_state = 0;
+
     while (hw_args->running &&
            g_scheduler &&
            g_scheduler->active) {
 
         int leds[HW_LED_COUNT];
-
-        hardware_leds_from_canal(hw_args->canal, leds);
+        char serial_line[128];
 
         /*
-         * No apagamos el programa si falla el envío.
-         * hardware_serial_send_leds() ya maneja enabled/connected.
+         * Leer todo lo que haya disponible desde el ESP32-D.
          */
+        while (hardware_serial_read_line(hw_args->hw,
+                                         serial_line,
+                                         sizeof(serial_line)) > 0) {
+
+            if (strcmp(serial_line, "SENSOR:1") == 0) {
+                if (last_sensor_state == 0) {
+                    canal_interrupt(hw_args->canal);
+                    last_sensor_state = 1;
+                }
+            } else if (strcmp(serial_line, "SENSOR:0") == 0) {
+                if (last_sensor_state == 1) {
+                    canal_clear_interrupt(hw_args->canal);
+                    last_sensor_state = 0;
+                }
+            }
+        }
+
+        /*
+         * Actualizacion normal de LEDs.
+         */
+        hardware_leds_from_canal(hw_args->canal, leds);
         hardware_serial_send_leds(hw_args->hw, leds);
 
         sleep_ms(100);
     }
 
-    /*
-     * Al salir, apagar LEDs si el hardware sigue disponible.
-     */
     if (hw_args->hw->enabled && hw_args->hw->connected) {
         int leds[HW_LED_COUNT];
         hardware_leds_clear(leds);

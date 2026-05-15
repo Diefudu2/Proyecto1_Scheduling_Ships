@@ -117,7 +117,7 @@ static void wake_eligible(Canal *c, ShipQueue *q)
             s->uth->state == UTHREAD_BLOCKED)
         {
             /* Sacar de la cola de espera del canal */
-            queue_remove(q, s);
+            //queue_remove(q, s);
             /* Devolver al scheduler como READY */
             s->uth->state = UTHREAD_READY;
             sched_add(g_scheduler, s->uth);
@@ -589,15 +589,24 @@ void canal_interrupt(Canal *c)
 
     pthread_mutex_lock(&c->mutex);
 
+    /*
+     * Si ya está interrumpido, no volver a reinsertar barcos.
+     * Esto evita duplicados si el sensor manda SENSOR:1 varias veces.
+     */
+    if (c->state.interrupted) {
+        pthread_mutex_unlock(&c->mutex);
+        return;
+    }
+
     c->state.interrupted = 1;
 
     /*
      * Expulsar todos los barcos que están dentro del canal.
+     * Se devuelven al frente de la cola correspondiente.
      *
-     * Importante:
-     * No hacemos sched_add() aquí para barcos que estaban cruzando.
-     * Esos UThreads ya están en ejecución o volverán a correr por el
-     * scheduler. Cuando vuelvan, verán s->state == SHIP_BLOCKED.
+     * IMPORTANTE:
+     * Solo se cambia s->state.
+     * NO se cambia s->uth->state aquí.
      */
     for (int i = 0; i < c->state.ship_count; i++) {
         Ship *s = c->state.ships[i];
@@ -608,9 +617,6 @@ void canal_interrupt(Canal *c)
 
         s->state = SHIP_BLOCKED;
 
-        /*
-         * Reiniciar posición según el lado original.
-         */
         if (s->dir == DIR_LEFT) {
             s->pos = 0;
             queue_push_front(&c->state.queue_left, s);
@@ -627,15 +633,30 @@ void canal_interrupt(Canal *c)
     c->state.passed_current = 0;
 
     /*
-     * Por ahora la interrupción se maneja como pulso.
-     * Más adelante podemos dejarla activa hasta presionar 'r'.
+     * NO limpiar interrupted aquí.
+     * Se limpia con canal_clear_interrupt().
      */
-    c->state.interrupted = 0;
 
     pthread_mutex_unlock(&c->mutex);
 }
 
+void canal_clear_interrupt(Canal *c)
+{
+    if (!c) return;
 
+    pthread_mutex_lock(&c->mutex);
+
+    c->state.interrupted = 0;
+
+    /*
+     * Al liberar la interrupción, despertar barcos elegibles
+     * para que vuelvan a competir por entrar al canal.
+     */
+    wake_eligible(c, &c->state.queue_left);
+    wake_eligible(c, &c->state.queue_right);
+
+    pthread_mutex_unlock(&c->mutex);
+}
 /* =========================================================
  * SECCIÓN 6 — Carga de configuración
  * ========================================================= */
