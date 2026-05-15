@@ -11,6 +11,8 @@ BUILD    = build
 SRCS = $(SRC_DIR)/ship.c \
        $(SRC_DIR)/canal.c \
        $(SRC_DIR)/gui.c \
+       $(SRC_DIR)/hardware_serial.c \
+       $(SRC_DIR)/hardware_leds.c \
        $(SRC_DIR)/main.c
 
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD)/%.o, $(SRCS))
