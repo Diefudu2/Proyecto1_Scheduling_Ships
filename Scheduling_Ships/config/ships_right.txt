@@ -1,5 +1,5 @@
 # Barcos lado derecho (R->L)
 # N=Normal  F=Pesquero  P=Patrulla   L=Izquierda  R=Derecha
-N R
-F R
-P R
+#N R
+#F R
+#P R
