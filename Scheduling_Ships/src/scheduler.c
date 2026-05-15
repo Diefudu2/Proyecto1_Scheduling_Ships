@@ -1,5 +1,6 @@
 #include "scheduler.h"
 #include "uthread.h"
+#include <time.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,6 +132,7 @@ static void sigalrm_handler(int sig)
     g_current->state = UTHREAD_READY;
     queue_push_fifo(&s->queue, g_current);   /* al final de la cola */
     s->metrics.total_preemptions++;
+    s->preempt_flag = 1;
 
     /* Saltar al scheduler desde dentro del contexto del UThread.
      * Esto funciona porque SIGALRM se entrega al main thread,
@@ -290,7 +292,10 @@ void sched_loop(Scheduler *s)
             /* Ready queue vacía — idle */
             s->metrics.total_idle++;
             disarm_timer();
-            usleep(500);   /* cede CPU al SO brevemente */
+            struct timespec ts;
+            ts.tv_sec = 0;
+            ts.tv_nsec = 500000L;   /* 0.5 ms */
+            nanosleep(&ts, NULL);
             continue;
         }
 
@@ -338,7 +343,12 @@ void sched_loop(Scheduler *s)
                     queue_push_fifo(&s->queue, g_current);
                     break;
                 case SS_RR:
-                    /* Ya re-insertado por el handler — no hacer nada */
+                    /*
+                    * Si el hilo volvió por SIGALRM, el handler ya lo reencoló.
+                    * Si volvió por uthread_yield() voluntario, debemos reencolarlo aquí.
+                    */
+                    if (!s->preempt_flag)
+                        queue_push_fifo(&s->queue, g_current);
                     break;
                 case SS_PRIORITY:
                     queue_push_sorted(&s->queue, g_current, cmp_priority);
