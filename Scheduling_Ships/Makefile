@@ -2,7 +2,7 @@
 # CE 4303 – Principios de Sistemas Operativos
 
 CC      = gcc
-CFLAGS  = -Wall -Wextra -g -O0 -D_XOPEN_SOURCE=700 -Iinclude
+CFLAGS  = -Wall -Wextra -g -O0 -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE -Iinclude
 LDFLAGS = -pthread -lncurses
 
 SRC_DIR = src

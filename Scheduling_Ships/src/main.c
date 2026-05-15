@@ -14,6 +14,7 @@
 
 /* =========================================================
  * main.c — Integración Canal nuevo + UThreads + Scheduler
+ *          + GUI + ESP32-D
  * ========================================================= */
 
 static Scheduler g_sched;
@@ -22,6 +23,10 @@ typedef struct {
     SchedAlgo sched_algo;
     int       quantum_ms;
 } SchedulerConfig;
+
+/* =========================================================
+ * Utilidades de texto
+ * ========================================================= */
 
 static void trim_newline(char *s)
 {
@@ -47,6 +52,10 @@ static void uppercase_str(char *s)
         *s = (char)toupper((unsigned char)*s);
     }
 }
+
+/* =========================================================
+ * Cargar configuración del scheduler desde canal.cfg
+ * ========================================================= */
 
 static SchedulerConfig load_scheduler_config(const char *filepath)
 {
@@ -141,6 +150,59 @@ static void sleep_ms(long ms)
     nanosleep(&ts, NULL);
 }
 
+/* =========================================================
+ * Hilo de actualización del ESP32-D
+ *
+ * Este hilo NO representa barcos.
+ * Solo es infraestructura visual de hardware.
+ *
+ * Cada 100 ms:
+ *   1. Convierte el estado actual del canal a 21 LEDs.
+ *   2. Envía la lista al ESP32-D por serial.
+ * ========================================================= */
+
+typedef struct {
+    Canal *canal;
+    HardwareSerial *hw;
+    volatile int running;
+} HardwareRenderArgs;
+
+static void *hardware_render_thread(void *arg)
+{
+    HardwareRenderArgs *hw_args = (HardwareRenderArgs *)arg;
+
+    if (!hw_args || !hw_args->canal || !hw_args->hw) {
+        return NULL;
+    }
+
+    while (hw_args->running &&
+           g_scheduler &&
+           g_scheduler->active) {
+
+        int leds[HW_LED_COUNT];
+
+        hardware_leds_from_canal(hw_args->canal, leds);
+
+        /*
+         * No apagamos el programa si falla el envío.
+         * hardware_serial_send_leds() ya maneja enabled/connected.
+         */
+        hardware_serial_send_leds(hw_args->hw, leds);
+
+        sleep_ms(100);
+    }
+
+    /*
+     * Al salir, apagar LEDs si el hardware sigue disponible.
+     */
+    if (hw_args->hw->enabled && hw_args->hw->connected) {
+        int leds[HW_LED_COUNT];
+        hardware_leds_clear(leds);
+        hardware_serial_send_leds(hw_args->hw, leds);
+    }
+
+    return NULL;
+}
 
 /* =========================================================
  * Generar plantilla básica de configuración
@@ -176,7 +238,6 @@ static int save_config_template(const char *filepath)
     fclose(f);
     return 0;
 }
-
 
 /* =========================================================
  * Cargar barcos desde archivo
@@ -276,7 +337,6 @@ static int load_ships_from_file(const char *filepath)
     return count;
 }
 
-
 /* =========================================================
  * Hilos auxiliares del canal
  *
@@ -319,7 +379,6 @@ static void stop_flow_threads(Canal *c)
     }
 }
 
-
 /* =========================================================
  * Hilo de entrada por teclado
  *
@@ -354,7 +413,6 @@ static void *input_thread_func(void *arg)
 
     return NULL;
 }
-
 
 /* =========================================================
  * Main
@@ -392,14 +450,8 @@ int main(int argc, char *argv[])
     g_canal = canal;
 
     /*
-     * Inicializar scheduler.
-     *
-     * Por ahora FCFS fijo para validar integración.
-     * Luego se puede leer sched_algo desde config.
+     * Inicializar scheduler desde canal.cfg.
      */
-    /*
-    * Inicializar scheduler desde canal.cfg.
-    */
     SchedulerConfig sched_cfg = load_scheduler_config(config_path);
 
     sched_init(&g_sched, sched_cfg.sched_algo, sched_cfg.quantum_ms);
@@ -443,7 +495,7 @@ int main(int argc, char *argv[])
         };
 
         hardware_serial_send_leds(&hw, test_leds);
-        usleep(2000000);
+        sleep_ms(2000);
     }
 
     GuiState gui;
@@ -451,6 +503,19 @@ int main(int argc, char *argv[])
 
     pthread_t render_tid;
     pthread_create(&render_tid, NULL, gui_render_thread, &gui);
+
+    /*
+     * Hilo de actualización del ESP32-D.
+     * Se inicia antes de cargar barcos para que el hardware
+     * refleje colas/canal desde el comienzo.
+     */
+    HardwareRenderArgs hw_args;
+    hw_args.canal = canal;
+    hw_args.hw = &hw;
+    hw_args.running = 1;
+
+    pthread_t hardware_tid;
+    pthread_create(&hardware_tid, NULL, hardware_render_thread, &hw_args);
 
     start_flow_threads(canal);
 
@@ -481,18 +546,25 @@ int main(int argc, char *argv[])
     sched_loop(&g_sched);
 
     /*
-     * Si sched_loop() terminó, apagamos GUI.
+     * Si sched_loop() terminó, apagamos GUI y hardware.
      */
     gui.running = 0;
+    hw_args.running = 0;
 
     pthread_join(input_tid, NULL);
     pthread_join(render_tid, NULL);
+    pthread_join(hardware_tid, NULL);
 
     /*
-    * Importante:
-    * Restaurar la terminal antes de esperar hilos auxiliares
-    * que podrían tardar en cerrar.
-    */
+     * Cerrar puerto serial del ESP32-D.
+     */
+    hardware_serial_close(&hw);
+
+    /*
+     * Importante:
+     * Restaurar la terminal antes de esperar hilos auxiliares
+     * que podrían tardar en cerrar.
+     */
     gui_destroy(&gui);
 
     stop_flow_threads(canal);

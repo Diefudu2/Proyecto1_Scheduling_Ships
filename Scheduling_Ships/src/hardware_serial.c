@@ -79,7 +79,9 @@ static int configure_port(HardwareSerial *hw)
     tty.c_cflag |= CS8;              /* 8 bits */
 
     /* Sin control de flujo por hardware */
-    tty.c_cflag &= ~CRTSCTS;
+    #ifdef CRTSCTS
+        tty.c_cflag &= ~CRTSCTS;
+    #endif
 
     /* Habilitar receptor y evitar que el puerto sea controlador terminal */
     tty.c_cflag |= CREAD | CLOCAL;

@@ -1,7 +1,6 @@
 #include "hardware_leds.h"
 
-#include <pthread.h>
-#include <string.h>
+#include <stddef.h>
 
 /* ---------------------------------------------------------
  * Apaga todos los LEDs
@@ -24,7 +23,7 @@ int hardware_leds_ship_type_to_code(ShipType type)
         case SHIP_NORMAL:
             return LED_SHIP_NORMAL;
 
-        case SHIP_FISHING:
+        case SHIP_FISHER:
             return LED_SHIP_FISHING;
 
         case SHIP_PATROL:
@@ -36,20 +35,18 @@ int hardware_leds_ship_type_to_code(ShipType type)
 }
 
 /* ---------------------------------------------------------
- * Copia una cola de barcos a un segmento de LEDs
+ * Copia una cola de barcos a un segmento de LEDs.
  *
- * Ejemplo:
- *   Cola izquierda: LEDs 0 - 3
- *   Cola derecha:   LEDs 16 - 19
+ * IMPORTANTE:
+ * Esta funcion asume que canal->mutex ya esta tomado.
+ * En el canal nuevo, ShipQueue no tiene mutex propio.
  * --------------------------------------------------------- */
-static void map_queue_to_leds(ShipQueue *queue,
-                              int leds[HW_LED_COUNT],
-                              int start_index,
-                              int end_index)
+static void map_queue_to_leds_unlocked(ShipQueue *queue,
+                                       int leds[HW_LED_COUNT],
+                                       int start_index,
+                                       int end_index)
 {
     if (!queue || !leds) return;
-
-    pthread_mutex_lock(&queue->lock);
 
     Ship *cur = queue->head;
     int led_index = start_index;
@@ -59,21 +56,13 @@ static void map_queue_to_leds(ShipQueue *queue,
         cur = cur->next;
         led_index++;
     }
-
-    pthread_mutex_unlock(&queue->lock);
 }
 
 /* ---------------------------------------------------------
  * Convierte posicion real del canal a posicion LED
  *
- * El canal del programa puede tener longitud configurable,
- * pero el hardware solo tiene 10 LEDs para representar canal.
- *
- * Si canal_length = 10:
- *   posicion 1 -> LED 5
- *   posicion 10 -> LED 14
- *
- * Si canal_length es mayor o menor, se escala a 10 LEDs.
+ * El canal puede tener longitud configurable, pero el
+ * hardware solo tiene 10 LEDs para representarlo.
  * --------------------------------------------------------- */
 static int canal_position_to_led(int position, int canal_length)
 {
@@ -103,100 +92,10 @@ static int canal_position_to_led(int position, int canal_length)
 }
 
 /* ---------------------------------------------------------
- * Mapea los barcos dentro del canal a LEDs 5 - 14
- * --------------------------------------------------------- */
-static void map_canal_to_leds(Canal *canal,
-                              int leds[HW_LED_COUNT])
-{
-    if (!canal || !leds) return;
-
-    pthread_mutex_lock(&canal->lock);
-
-    for (int i = 0; i < canal->in_canal_count; i++) {
-        Ship *ship = canal->in_canal[i];
-
-        if (!ship) {
-            continue;
-        }
-
-        int led_index = canal_position_to_led(ship->position,
-                                              canal->cfg.canal_length);
-
-        if (led_index >= LED_CANAL_START &&
-            led_index <= LED_CANAL_END) {
-            leds[led_index] = hardware_leds_ship_type_to_code(ship->type);
-        }
-    }
-
-    pthread_mutex_unlock(&canal->lock);
-}
-
-/* ---------------------------------------------------------
- * Mapea direccion actual del canal al LED 20
- *
- * Segun la asignacion:
- *   LED 20 = indicador de flujo
- *
- * CANAL_DIR_LEFT en el codigo actual representa:
- *   IZQ -> DER
- *
- * CANAL_DIR_RIGHT representa:
- *   DER -> IZQ
- * --------------------------------------------------------- */
-static void map_flow_to_led(Canal *canal,
-                            int leds[HW_LED_COUNT])
-{
-    if (!canal || !leds) return;
-
-    pthread_mutex_lock(&canal->lock);
-
-    CanalDirection dir = canal->current_dir;
-
-    if (dir == CANAL_DIR_LEFT) {
-        leds[LED_FLOW_INDICATOR] = LED_FLOW_RIGHT;
-    } else if (dir == CANAL_DIR_RIGHT) {
-        leds[LED_FLOW_INDICATOR] = LED_FLOW_LEFT;
-    } else {
-        leds[LED_FLOW_INDICATOR] = LED_OFF;
-    }
-
-    pthread_mutex_unlock(&canal->lock);
-}
-
-/* ---------------------------------------------------------
- * Mapea barreras / agujas
- *
- * Por ahora:
- *   - Si hay barcos en el canal, ambas barreras se muestran activas.
- *   - Si el canal esta libre, se apagan.
- *
- * Luego, cuando agreguemos interrupcion:
- *   - Si interruption_active == 1, se usara LED_INTERRUPTION.
- * --------------------------------------------------------- */
-static void map_barriers_to_leds(Canal *canal,
-                                 int leds[HW_LED_COUNT])
-{
-    if (!canal || !leds) return;
-
-    pthread_mutex_lock(&canal->lock);
-
-    if (canal->in_canal_count > 0 ||
-        canal->current_dir != CANAL_DIR_FREE) {
-        leds[LED_LEFT_BARRIER]  = LED_BARRIER_ACTIVE;
-        leds[LED_RIGHT_BARRIER] = LED_BARRIER_ACTIVE;
-    } else {
-        leds[LED_LEFT_BARRIER]  = LED_OFF;
-        leds[LED_RIGHT_BARRIER] = LED_OFF;
-    }
-
-    pthread_mutex_unlock(&canal->lock);
-}
-
-/* ---------------------------------------------------------
  * Funcion principal:
  * convierte el estado actual del canal en una lista de 21 LEDs
  *
- * Mapa:
+ * Mapa fisico:
  *   0 - 3    cola izquierda
  *   4        barrera izquierda
  *   5 - 14   canal
@@ -215,19 +114,57 @@ void hardware_leds_from_canal(Canal *canal,
         return;
     }
 
-    map_queue_to_leds(&canal->queue_left,
-                      leds,
-                      LED_LEFT_QUEUE_START,
-                      LED_LEFT_QUEUE_END);
+    pthread_mutex_lock(&canal->mutex);
 
-    map_queue_to_leds(&canal->queue_right,
-                      leds,
-                      LED_RIGHT_QUEUE_START,
-                      LED_RIGHT_QUEUE_END);
+    /* Colas */
+    map_queue_to_leds_unlocked(&canal->state.queue_left,
+                               leds,
+                               LED_LEFT_QUEUE_START,
+                               LED_LEFT_QUEUE_END);
 
-    map_canal_to_leds(canal, leds);
+    map_queue_to_leds_unlocked(&canal->state.queue_right,
+                               leds,
+                               LED_RIGHT_QUEUE_START,
+                               LED_RIGHT_QUEUE_END);
 
-    map_barriers_to_leds(canal, leds);
+    /* Barcos dentro del canal */
+    for (int i = 0; i < canal->state.ship_count; i++) {
+        Ship *ship = canal->state.ships[i];
 
-    map_flow_to_led(canal, leds);
+        if (!ship) {
+            continue;
+        }
+
+        int led_index = canal_position_to_led(ship->pos,
+                                              canal->config.canal_length);
+
+        if (led_index >= LED_CANAL_START &&
+            led_index <= LED_CANAL_END) {
+            leds[led_index] = hardware_leds_ship_type_to_code(ship->type);
+        }
+    }
+
+    /* Barreras / interrupcion */
+    if (canal->state.interrupted) {
+        leds[LED_LEFT_BARRIER]  = LED_INTERRUPTION;
+        leds[LED_RIGHT_BARRIER] = LED_INTERRUPTION;
+    } else if (canal->state.ship_count > 0 ||
+               canal->state.direction != CANAL_DIR_FREE) {
+        leds[LED_LEFT_BARRIER]  = LED_BARRIER_ACTIVE;
+        leds[LED_RIGHT_BARRIER] = LED_BARRIER_ACTIVE;
+    } else {
+        leds[LED_LEFT_BARRIER]  = LED_OFF;
+        leds[LED_RIGHT_BARRIER] = LED_OFF;
+    }
+
+    /* Indicador de flujo */
+    if (canal->state.direction == CANAL_DIR_LEFT) {
+        leds[LED_FLOW_INDICATOR] = LED_FLOW_RIGHT;
+    } else if (canal->state.direction == CANAL_DIR_RIGHT) {
+        leds[LED_FLOW_INDICATOR] = LED_FLOW_LEFT;
+    } else {
+        leds[LED_FLOW_INDICATOR] = LED_OFF;
+    }
+
+    pthread_mutex_unlock(&canal->mutex);
 }
