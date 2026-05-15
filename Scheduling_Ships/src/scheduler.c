@@ -32,7 +32,24 @@ Scheduler *g_scheduler = NULL;
  * Todas las funciones de cola asumen que el mutex ya
  * está tomado por el llamador.
  * ========================================================= */
+static int queue_contains(ReadyQueue *q, UThread *t)
+{
+    if (!q || !t) {
+        return 0;
+    }
 
+    UThread *cur = q->head;
+
+    while (cur) {
+        if (cur == t) {
+            return 1;
+        }
+
+        cur = cur->next;
+    }
+
+    return 0;
+}
 /* Inserta al final — para FCFS y RR (orden de llegada) */
 static void queue_push_fifo(ReadyQueue *q, UThread *t)
 {
@@ -203,12 +220,39 @@ void sched_init(Scheduler *s, SchedAlgo algo, int quantum_ms)
  * --------------------------------------------------------- */
 void sched_add(Scheduler *s, UThread *t)
 {
-    assert(t != NULL);
-    assert(t->state == UTHREAD_READY);
+        if (!s || !t) {
+        return;
+    }
+
+    /*
+     * Nunca reinsertar hilos terminados.
+     */
+    if (t->state == UTHREAD_DONE) {
+        return;
+    }
+
+    /*
+     * sched_add() solo debe recibir READY.
+     */
+    if (t->state != UTHREAD_READY) {
+        return;
+    }
 
     pthread_mutex_lock(&s->queue.lock);
 
+    /*
+     * Evitar duplicados en ready queue.
+     * Esto previene que un UThread terminado pueda volver a ejecutarse
+     * por haber quedado insertado más de una vez.
+     */
+    if (queue_contains(&s->queue, t)) {
+        pthread_mutex_unlock(&s->queue.lock);
+        return;
+    }
+
     switch (s->algo) {
+
+    
         case SS_FCFS:
         case SS_RR:
             queue_push_fifo(&s->queue, t);
@@ -224,23 +268,6 @@ void sched_add(Scheduler *s, UThread *t)
 
         case SS_STRN:
             queue_push_sorted(&s->queue, t, cmp_remaining);
-
-            /* Preemption inmediata si el nuevo hilo es más corto
-             * que el que está corriendo ahora.                   */
-            if (g_current &&
-                g_current->state == UTHREAD_RUNNING &&
-                t->sched.remaining_ms < g_current->sched.remaining_ms)
-            {
-                /* Señalamos al main thread para que el handler
-                 * interrumpa al UThread actual y vuelva al scheduler.
-                 *
-                 * Nota: sched_add() puede ser llamado desde un canal
-                 * thread, por eso usamos pthread_kill en lugar de
-                 * raise() — esto garantiza que SIGALRM se entregue
-                 * al hilo correcto (el que corre el UThread).       */
-                s->preempt_flag = 1;
-                pthread_kill(s->main_thread, SIGALRM);
-            }
             break;
 
         case SS_EDF:
