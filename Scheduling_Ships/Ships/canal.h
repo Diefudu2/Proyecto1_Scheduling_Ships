@@ -35,6 +35,9 @@ int canal_apply_config(void);
 int canal_try_enter(Ship *ship);
 void canal_tick(void);
 
+int canal_preempt_ship(Ship *ship);
+int canal_has_crossing_ships(void);
+
 int canal_get_ship_count(void);
 int canal_get_length(void);
 int canal_get_max_ships(void);

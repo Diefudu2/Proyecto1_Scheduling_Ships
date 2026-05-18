@@ -418,7 +418,17 @@ int canal_try_enter(Ship *ship)
         return 0;
     }
 
-    int entry_pos = canal_entry_position_for_ship(ship);
+    int entry_pos;
+
+    /*
+    * Si el barco fue apropiado antes, intenta volver a su posición guardada.
+    * Si esa posición ya no está disponible, simplemente no entra todavía.
+    */
+    if (canal_valid_position(ship->saved_position)) {
+        entry_pos = ship->saved_position;
+    } else {
+        entry_pos = canal_entry_position_for_ship(ship);
+    }
 
     if (!canal_valid_position(entry_pos)) {
         return 0;
@@ -532,6 +542,69 @@ static void canal_finish_ship(Ship *ship)
     thread_exit(ship->thread);
 
     canal_update_flow_when_empty();
+}
+
+int canal_preempt_ship(Ship *ship)
+{
+    if (!ship || !ship->thread) {
+        return 0;
+    }
+
+    if (ship->state != SHIP_CROSSING) {
+        return 0;
+    }
+
+    int pos = ship->position;
+
+    if (!canal_valid_position(pos)) {
+        return 0;
+    }
+
+    if (g_canal.positions[pos] != ship) {
+        return 0;
+    }
+
+    /*
+     * Guardar punto lógico donde iba el barco.
+     * Luego, cuando vuelva a ser calendarizado, intentará restaurarse ahí.
+     */
+    ship->saved_position = pos;
+
+    /*
+     * Liberar recurso lógico de posición.
+     */
+    g_canal.positions[pos] = NULL;
+    sim_sem_signal(&g_canal.sem_positions[pos]);
+
+    /*
+     * Liberar cupo general del canal.
+     */
+    sim_sem_signal(&g_canal.sem_cpu_slots);
+
+    if (g_canal.ship_count > 0) {
+        g_canal.ship_count--;
+    }
+
+    /*
+     * El barco vuelve a READY sin perder su remaining_ms.
+     */
+    ship->position = -1;
+    ship->state = SHIP_READY;
+    thread_preempt(ship->thread);
+
+    scheduler_add_ready(ship->thread);
+
+    /*
+     * Si el canal quedó vacío, se actualiza el flujo.
+     */
+    canal_update_flow_when_empty();
+
+    return 1;
+}
+
+int canal_has_crossing_ships(void)
+{
+    return g_canal.ship_count > 0;
 }
 
 static int canal_advance_one_position(Ship *ship)

@@ -67,14 +67,21 @@ static void task_project_core(void *arg)
         serial_protocol_poll();
 
         if (scheduler_is_enabled()) {
-            while (scheduler_dispatch_to_canal()) {
-                /* llenar cupos disponibles mientras el flujo lo permita */
-            }
+        /*
+        * Primero revisar apropiación.
+        * Si RR/STRN/EDF decide sacar un barco del canal,
+        * ese cupo queda disponible antes del despacho.
+        */
+        scheduler_apply_preemption();
 
-            canal_tick();
-            ships_sync_states_from_threads();
-            led_view_render_phase4();
+        while (scheduler_dispatch_to_canal()) {
+            /* llenar cupos disponibles mientras el flujo lo permita */
         }
+
+        canal_tick();
+        ships_sync_states_from_threads();
+        led_view_render_phase4();
+    }
 
         vTaskDelay(pdMS_TO_TICKS(cfg->system_tick_ms));
     }
