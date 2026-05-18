@@ -1,0 +1,16 @@
+/* Agregue o reemplace estos defines en config.h */
+
+/*
+ * Fotoresistencia.
+ * Según sus pruebas, GPIO2 sí separa:
+ *   luz    ≈ 1281
+ *   tapado ≈ 177
+ */
+#define INTERRUPT_PHOTO_ADC_GPIO          2
+
+#define INTERRUPT_PHOTO_DARK_THRESHOLD    300
+#define INTERRUPT_PHOTO_LIGHT_THRESHOLD   800
+#define INTERRUPT_PHOTO_DARK_IS_LOW       1
+#define INTERRUPT_PHOTO_STABLE_SAMPLES    5
+#define INTERRUPT_PHOTO_SENSOR_ENABLED    1
+#define INTERRUPT_SENSOR_COOLDOWN_MS      800

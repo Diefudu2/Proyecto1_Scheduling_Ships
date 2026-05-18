@@ -20,7 +20,6 @@ typedef struct {
     CanalDirection active_dir;
 
     Ship *positions[CONFIG_MAX_CANAL_POSITIONS];
-    
 
     int ship_count;
     int interrupted;
@@ -36,8 +35,12 @@ int canal_try_enter(Ship *ship);
 void canal_tick(void);
 
 int canal_preempt_ship(Ship *ship);
+int canal_preempt_blocker_for_edf(void);
 int canal_preempt_blocker_for_algo(SchedAlgo algo);
 int canal_has_crossing_ships(void);
+
+int canal_interrupt_activate(void);
+void canal_interrupt_deactivate(void);
 
 int canal_get_ship_count(void);
 int canal_get_length(void);
@@ -47,9 +50,6 @@ Ship *canal_get_ship_at_position(int position);
 
 int canal_position_to_led_slot(int position);
 int canal_position_to_led_index(int position);
-
-int canal_interrupt_activate(void);
-void canal_interrupt_deactivate(void);
 
 void canal_set_interrupted(int value);
 int canal_is_interrupted(void);
