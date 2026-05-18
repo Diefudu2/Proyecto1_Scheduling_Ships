@@ -10,9 +10,12 @@ idf_component_register(
         "ships.c"
         "canal.c"
         "scenario.c"
+        "interrupt_control.c"
     INCLUDE_DIRS
         "."
     PRIV_REQUIRES
         esp_driver_usb_serial_jtag
+        esp_driver_gpio
+        esp_adc
         led_strip
 )

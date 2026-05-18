@@ -416,73 +416,134 @@ int scheduler_apply_preemption(void)
     g_scheduler.quantum_ms = cfg->quantum_ms;
 
     /*
-     * Importante de diseño:
-     * - STRN y EDF NO deben expulsar barcos solo porque existe un candidato
-     *   mejor en READY o detrás en el canal.
-     * - La apropiación fuerte de STRN/EDF ocurre en canal_advance_one_position(),
-     *   exactamente cuando el barco apropiativo intenta tomar una posición lógica
-     *   o un segmento físico ocupado por un barco menos conveniente.
+     * 1. Apropiación por bloqueo dentro del canal.
      *
-     * Esto evita el comportamiento incorrecto donde el bloqueador salía apenas
-     * entraba el barco urgente, antes de que realmente disputaran el recurso.
+     * Esto evidencia la característica principal:
+     * el barco apropiativo puede adueñarse del recurso
+     * si otro barco menos adecuado lo está bloqueando.
      */
+    if (g_scheduler.algo == SCHED_RR ||
+        g_scheduler.algo == SCHED_STRN ||
+        g_scheduler.algo == SCHED_EDF) {
 
-    int len = canal_get_length();
-
-    /*
-     * Todo barco que está cruzando consume quantum lógico con el tiempo.
-     * Esto se actualiza aunque no haya READY, porque luego RR puede necesitar
-     * el valor para decidir si el recurso ya agotó su turno.
-     */
-    for (int pos = 0; pos < len; pos++) {
-        Ship *ship = canal_get_ship_at_position(pos);
-
-        if (!ship || !ship->thread || ship->state != SHIP_CROSSING) {
-            continue;
+        if (canal_preempt_blocker_for_algo(g_scheduler.algo)) {
+            g_scheduler.total_preemptions++;
+            return 1;
         }
-
-        ship->thread->quantum_used_ms += cfg->system_tick_ms;
     }
 
     /*
-     * Apropiación externa por quantum:
-     * RR sí puede quitar un barco del canal cuando agotó su quantum y hay
-     * otro proceso esperando. STRN y EDF se dejan como apropiación directa
-     * al disputar el recurso, no como expulsión anticipada.
+     * Si no hay READY, no hay candidato externo para apropiación.
      */
-    if (g_scheduler.algo != SCHED_RR) {
-        return 0;
-    }
-
     if (!g_scheduler.ready_head) {
         return 0;
     }
 
+    SimThread *best_ready = scheduler_find_best_ready();
+
+    if (!best_ready) {
+        return 0;
+    }
+
+    Ship *target_ship = NULL;
+    SimThread *target_thread = NULL;
+
+    int len = canal_get_length();
+
+    /*
+     * 2. Apropiación desde READY contra barcos en canal.
+     */
     for (int pos = 0; pos < len; pos++) {
         Ship *ship = canal_get_ship_at_position(pos);
 
-        if (!ship || !ship->thread || ship->state != SHIP_CROSSING) {
+        if (!ship || !ship->thread) {
             continue;
         }
 
-        if (ship->thread->quantum_used_ms >= g_scheduler.quantum_ms) {
-            SimThread *old = ship->thread;
-
-            if (canal_preempt_ship(ship)) {
-                old->quantum_used_ms = 0;
-
-                if (g_scheduler.running == old) {
-                    g_scheduler.running = NULL;
-                }
-
-                g_scheduler.total_preemptions++;
-                return 1;
-            }
+        if (ship->state != SHIP_CROSSING) {
+            continue;
         }
+
+        SimThread *running = ship->thread;
+
+        /*
+         * Mientras está en canal consume quantum.
+         */
+        running->quantum_used_ms += cfg->system_tick_ms;
+
+        switch (g_scheduler.algo) {
+            case SCHED_RR:
+                /*
+                 * RR: si agotó quantum y hay alguien en READY,
+                 * se apropia el barco actual.
+                 */
+                if (running->quantum_used_ms >= g_scheduler.quantum_ms) {
+                    target_ship = ship;
+                    target_thread = running;
+                }
+                break;
+
+            case SCHED_STRN:
+                /*
+                 * STRN: READY con menor remaining_ms apropia
+                 * al que tenga mayor remaining_ms dentro del canal.
+                 */
+                if (best_ready->remaining_ms < running->remaining_ms) {
+                    if (!target_thread ||
+                        running->remaining_ms > target_thread->remaining_ms) {
+                        target_ship = ship;
+                        target_thread = running;
+                    }
+                }
+                break;
+
+            case SCHED_EDF:
+                /*
+                 * EDF: READY con deadline más urgente apropia
+                 * al menos urgente dentro del canal.
+                 */
+                if (best_ready->deadline_ms < running->deadline_ms) {
+                    if (!target_thread ||
+                        running->deadline_ms > target_thread->deadline_ms) {
+                        target_ship = ship;
+                        target_thread = running;
+                    }
+                }
+                break;
+
+            case SCHED_PRIORITY:
+            case SCHED_FCFS:
+            case SCHED_SJF:
+            default:
+                break;
+        }
+
+        /*
+         * Para RR basta con apropiar uno por ciclo.
+         */
+        if (target_ship && g_scheduler.algo == SCHED_RR) {
+            break;
+        }
+    }
+
+    if (!target_ship || !target_thread) {
+        return 0;
+    }
+
+    if (canal_preempt_ship(target_ship)) {
+        target_thread->quantum_used_ms = 0;
+
+        if (g_scheduler.running == target_thread) {
+            g_scheduler.running = NULL;
+        }
+
+        g_scheduler.total_preemptions++;
+        return 1;
     }
 
     return 0;
 }
+
 
 void scheduler_note_preemption(void)
 {

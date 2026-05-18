@@ -84,6 +84,29 @@
 
 #define LED_FLOW_INDICATOR           20
 
+
+/* ============================================================
+ * Interrupciones: fotoresistencia + control manual por GUI
+ * ============================================================
+ * No se usa botón físico. La liberación/activación manual se hace
+ * desde la interfaz gráfica con los comandos seriales:
+ *   INTERRUPT ON | INTERRUPT OFF | INTERRUPT TOGGLE
+ *
+ * Fotoresistencia: entrada analógica por ADC1. Por defecto se asume
+ * divisor: 3.3V -> LDR -> ADC -> resistencia -> GND. Con esa conexión,
+ * tapar la luz reduce el valor ADC. Si su divisor está invertido, cambie
+ * INTERRUPT_PHOTO_DARK_IS_LOW a 0.
+ *
+ * La detección usa histéresis y muestras estables para evitar que el
+ * sensor dispare la interrupción constantemente por ruido.
+ */
+#define INTERRUPT_PHOTO_ADC_GPIO          2
+#define INTERRUPT_PHOTO_DARK_THRESHOLD    300
+#define INTERRUPT_PHOTO_LIGHT_THRESHOLD   800
+#define INTERRUPT_PHOTO_DARK_IS_LOW       1
+#define INTERRUPT_PHOTO_STABLE_SAMPLES    5
+#define INTERRUPT_PHOTO_SENSOR_ENABLED    1
+
 /* ============================================================
  * Configuración viva del sistema
  * ============================================================ */

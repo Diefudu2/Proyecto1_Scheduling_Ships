@@ -13,6 +13,7 @@
 #include "ships.h"
 #include "canal.h"
 #include "scenario.h"
+#include "interrupt_control.h"
 
 static const char *TAG = "MAIN";
 
@@ -28,6 +29,7 @@ static void task_project_core(void *arg)
     scheduler_init();
     ships_init();
     canal_init();
+    interrupt_control_init();
 
     led_view_init();
     serial_protocol_init();
@@ -46,6 +48,8 @@ static void task_project_core(void *arg)
 
     serial_protocol_send_line("COMMANDS:");
     serial_protocol_send_line("  START | PAUSE | STEP | RESET");
+    serial_protocol_send_line("  INTERRUPT ON|OFF|TOGGLE|STATUS");
+    serial_protocol_send_line("  INTERRUPT SENSOR ON|OFF|REARM");
     serial_protocol_send_line("  STATUS | CONFIG | THREADS | SCHED | CANAL | FLOW");
     serial_protocol_send_line("  CLEAR | LEDTEST");
     serial_protocol_send_line("  n f p N F P");
@@ -65,30 +69,25 @@ static void task_project_core(void *arg)
         cfg = config_get();
 
         serial_protocol_poll();
+        interrupt_control_poll();
 
-        if (scheduler_is_enabled()) {
+        if (scheduler_is_enabled() && !canal_is_interrupted()) {
             /*
-            * Primero aplicar apropiación.
-            * RR, STRN y EDF pueden sacar un barco del canal
-            * y devolverlo a READY sin destruirlo.
-            */
+             * Los apropiativos RR, STRN y EDF pueden tomar recursos ya
+             * ocupados. La interrupción tiene mayor prioridad: si está
+             * activa, no se calendariza ni se mueve el canal.
+             */
             scheduler_apply_preemption();
 
-            /*
-             * Primero se mueve el canal. Si un barco apropiativo alcanza
-             * a un bloqueador durante este avance, canal.c puede quitar
-             * al bloqueador y permitir que el ganador tome el recurso
-             * inmediatamente. Después de mover se rellenan cupos libres.
-             */
             canal_tick();
 
             while (scheduler_dispatch_to_canal()) {
                 /* llenar cupos disponibles mientras el flujo lo permita */
             }
-
-            ships_sync_states_from_threads();
-            led_view_render_phase4();
         }
+
+        ships_sync_states_from_threads();
+        led_view_render_phase4();
 
         vTaskDelay(pdMS_TO_TICKS(cfg->system_tick_ms));
     }

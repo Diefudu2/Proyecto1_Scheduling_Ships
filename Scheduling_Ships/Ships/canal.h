@@ -48,6 +48,9 @@ Ship *canal_get_ship_at_position(int position);
 int canal_position_to_led_slot(int position);
 int canal_position_to_led_index(int position);
 
+int canal_interrupt_activate(void);
+void canal_interrupt_deactivate(void);
+
 void canal_set_interrupted(int value);
 int canal_is_interrupted(void);
 

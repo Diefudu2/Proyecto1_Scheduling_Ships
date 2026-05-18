@@ -1,0 +1,80 @@
+Command: ninja all
+[0/1] Re-running CMake...
+-- Component directory /home/andre/esp/esp-idf/components/idf_test does not contain a CMakeLists.txt file. No component will be added
+-- Minimal build - OFF
+-- Building ESP-IDF components for target esp32c6
+NOTICE: Processing 2 dependencies:
+NOTICE: [1/2] espressif/led_strip (3.0.3)
+NOTICE: [2/2] idf (6.1.0)
+-- KCONFIG_REPORT_VERBOSITY not set, using default
+-- Project sdkconfig file /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/sdkconfig
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Adding linker script /home/andre/esp/esp-idf/components/riscv/ld/rom.api.ld
+-- App "SchedulingShips" version: d72c0d3-dirty
+-- Setting up mbedtls configuration
+-- Linkage type is PUBLIC
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_hal_wdt/esp32c6/rom.wdt.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_system/ld/esp32c6/memory.ld.in
+--   -> Preprocessing .in script: /home/andre/esp/esp-idf/components/esp_system/ld/esp32c6/memory.ld.in
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_system/ld/esp32c6/sections.ld.in
+--   -> Preprocessing .in script: /home/andre/esp/esp-idf/components/esp_system/ld/esp32c6/sections.ld.in
+--   -> Applying ldgen processing: /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/esp-idf/esp_system/ld/sections.ld.in
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.api.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.rvfp.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.version.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.phy.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.coexist.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.net80211.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.pp.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_rom/esp32c6/ld/esp32c6.rom.libc.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/heap/port/esp32c6/ld/esp32c6.rom.heap.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/soc/esp32c6/ld/esp32c6.peripherals.ld
+-- Adding linker script /home/andre/esp/esp-idf/components/esp_hal_systimer/esp32c6/rom.systimer.ld
+-- Component idf::esp_trace will be linked with -Wl,--whole-archive
+-- Components: Ships app_trace app_update bootloader bootloader_support bt cmock console cxx driver efuse esp-tls esp_adc esp_app_format esp_asrc_adapter esp_blockdev esp_blockdev_util esp_bootloader_format esp_coex esp_common esp_driver_ana_cmpr esp_driver_bitscrambler esp_driver_cam esp_driver_cordic esp_driver_dac esp_driver_dma esp_driver_gpio esp_driver_gptimer esp_driver_i2c esp_driver_i2s esp_driver_i3c esp_driver_isp esp_driver_jpeg esp_driver_ledc esp_driver_mcpwm esp_driver_parlio esp_driver_pcnt esp_driver_ppa esp_driver_rmt esp_driver_sd_intf esp_driver_sdio esp_driver_sdm esp_driver_sdmmc esp_driver_sdspi esp_driver_spi esp_driver_touch_sens esp_driver_tsens esp_driver_twai esp_driver_uart esp_driver_usb_serial_jtag esp_eth esp_event esp_gdbstub esp_hal_ana_cmpr esp_hal_ana_conv esp_hal_asrc esp_hal_cam esp_hal_clock esp_hal_cordic esp_hal_dma esp_hal_emac esp_hal_gpio esp_hal_gpspi esp_hal_i2c esp_hal_i2s esp_hal_i3c esp_hal_ieee802154 esp_hal_jpeg esp_hal_lcd esp_hal_ledc esp_hal_mcpwm esp_hal_mspi esp_hal_parlio esp_hal_pcnt esp_hal_pmu esp_hal_ppa esp_hal_regi2c esp_hal_rmt esp_hal_rtc_timer esp_hal_sd esp_hal_security esp_hal_systimer esp_hal_timg esp_hal_touch_sens esp_hal_twai esp_hal_uart esp_hal_usb esp_hal_wdt esp_hid esp_http_client esp_http_server esp_https_ota esp_https_server esp_hw_support esp_lcd esp_libc esp_local_ctrl esp_mm esp_netif esp_netif_stack esp_partition esp_phy esp_pm esp_psram esp_ringbuf esp_rom esp_security esp_stdio esp_system esp_tee esp_timer esp_trace esp_usb_cdc_rom_console esp_wifi espcoredump espressif__led_strip esptool_py fatfs freertos hal heap http_parser ieee802154 log lwip mbedtls nvs_flash nvs_sec_provider openthread partition_table protobuf-c protocomm pthread riscv rt sdmmc soc spi_flash spiffs tcp_transport ulp unity vfs wear_levelling wpa_supplicant
+-- Component paths: /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/Ships /home/andre/esp/esp-idf/components/app_trace /home/andre/esp/esp-idf/components/app_update /home/andre/esp/esp-idf/components/bootloader /home/andre/esp/esp-idf/components/bootloader_support /home/andre/esp/esp-idf/components/bt /home/andre/esp/esp-idf/components/cmock /home/andre/esp/esp-idf/components/console /home/andre/esp/esp-idf/components/cxx /home/andre/esp/esp-idf/components/driver /home/andre/esp/esp-idf/components/efuse /home/andre/esp/esp-idf/components/esp-tls /home/andre/esp/esp-idf/components/esp_adc /home/andre/esp/esp-idf/components/esp_app_format /home/andre/esp/esp-idf/components/esp_asrc_adapter /home/andre/esp/esp-idf/components/esp_blockdev /home/andre/esp/esp-idf/components/esp_blockdev_util /home/andre/esp/esp-idf/components/esp_bootloader_format /home/andre/esp/esp-idf/components/esp_coex /home/andre/esp/esp-idf/components/esp_common /home/andre/esp/esp-idf/components/esp_driver_ana_cmpr /home/andre/esp/esp-idf/components/esp_driver_bitscrambler /home/andre/esp/esp-idf/components/esp_driver_cam /home/andre/esp/esp-idf/components/esp_driver_cordic /home/andre/esp/esp-idf/components/esp_driver_dac /home/andre/esp/esp-idf/components/esp_driver_dma /home/andre/esp/esp-idf/components/esp_driver_gpio /home/andre/esp/esp-idf/components/esp_driver_gptimer /home/andre/esp/esp-idf/components/esp_driver_i2c /home/andre/esp/esp-idf/components/esp_driver_i2s /home/andre/esp/esp-idf/components/esp_driver_i3c /home/andre/esp/esp-idf/components/esp_driver_isp /home/andre/esp/esp-idf/components/esp_driver_jpeg /home/andre/esp/esp-idf/components/esp_driver_ledc /home/andre/esp/esp-idf/components/esp_driver_mcpwm /home/andre/esp/esp-idf/components/esp_driver_parlio /home/andre/esp/esp-idf/components/esp_driver_pcnt /home/andre/esp/esp-idf/components/esp_driver_ppa /home/andre/esp/esp-idf/components/esp_driver_rmt /home/andre/esp/esp-idf/components/esp_driver_sd_intf /home/andre/esp/esp-idf/components/esp_driver_sdio /home/andre/esp/esp-idf/components/esp_driver_sdm /home/andre/esp/esp-idf/components/esp_driver_sdmmc /home/andre/esp/esp-idf/components/esp_driver_sdspi /home/andre/esp/esp-idf/components/esp_driver_spi /home/andre/esp/esp-idf/components/esp_driver_touch_sens /home/andre/esp/esp-idf/components/esp_driver_tsens /home/andre/esp/esp-idf/components/esp_driver_twai /home/andre/esp/esp-idf/components/esp_driver_uart /home/andre/esp/esp-idf/components/esp_driver_usb_serial_jtag /home/andre/esp/esp-idf/components/esp_eth /home/andre/esp/esp-idf/components/esp_event /home/andre/esp/esp-idf/components/esp_gdbstub /home/andre/esp/esp-idf/components/esp_hal_ana_cmpr /home/andre/esp/esp-idf/components/esp_hal_ana_conv /home/andre/esp/esp-idf/components/esp_hal_asrc /home/andre/esp/esp-idf/components/esp_hal_cam /home/andre/esp/esp-idf/components/esp_hal_clock /home/andre/esp/esp-idf/components/esp_hal_cordic /home/andre/esp/esp-idf/components/esp_hal_dma /home/andre/esp/esp-idf/components/esp_hal_emac /home/andre/esp/esp-idf/components/esp_hal_gpio /home/andre/esp/esp-idf/components/esp_hal_gpspi /home/andre/esp/esp-idf/components/esp_hal_i2c /home/andre/esp/esp-idf/components/esp_hal_i2s /home/andre/esp/esp-idf/components/esp_hal_i3c /home/andre/esp/esp-idf/components/esp_hal_ieee802154 /home/andre/esp/esp-idf/components/esp_hal_jpeg /home/andre/esp/esp-idf/components/esp_hal_lcd /home/andre/esp/esp-idf/components/esp_hal_ledc /home/andre/esp/esp-idf/components/esp_hal_mcpwm /home/andre/esp/esp-idf/components/esp_hal_mspi /home/andre/esp/esp-idf/components/esp_hal_parlio /home/andre/esp/esp-idf/components/esp_hal_pcnt /home/andre/esp/esp-idf/components/esp_hal_pmu /home/andre/esp/esp-idf/components/esp_hal_ppa /home/andre/esp/esp-idf/components/esp_hal_regi2c /home/andre/esp/esp-idf/components/esp_hal_rmt /home/andre/esp/esp-idf/components/esp_hal_rtc_timer /home/andre/esp/esp-idf/components/esp_hal_sd /home/andre/esp/esp-idf/components/esp_hal_security /home/andre/esp/esp-idf/components/esp_hal_systimer /home/andre/esp/esp-idf/components/esp_hal_timg /home/andre/esp/esp-idf/components/esp_hal_touch_sens /home/andre/esp/esp-idf/components/esp_hal_twai /home/andre/esp/esp-idf/components/esp_hal_uart /home/andre/esp/esp-idf/components/esp_hal_usb /home/andre/esp/esp-idf/components/esp_hal_wdt /home/andre/esp/esp-idf/components/esp_hid /home/andre/esp/esp-idf/components/esp_http_client /home/andre/esp/esp-idf/components/esp_http_server /home/andre/esp/esp-idf/components/esp_https_ota /home/andre/esp/esp-idf/components/esp_https_server /home/andre/esp/esp-idf/components/esp_hw_support /home/andre/esp/esp-idf/components/esp_lcd /home/andre/esp/esp-idf/components/esp_libc /home/andre/esp/esp-idf/components/esp_local_ctrl /home/andre/esp/esp-idf/components/esp_mm /home/andre/esp/esp-idf/components/esp_netif /home/andre/esp/esp-idf/components/esp_netif_stack /home/andre/esp/esp-idf/components/esp_partition /home/andre/esp/esp-idf/components/esp_phy /home/andre/esp/esp-idf/components/esp_pm /home/andre/esp/esp-idf/components/esp_psram /home/andre/esp/esp-idf/components/esp_ringbuf /home/andre/esp/esp-idf/components/esp_rom /home/andre/esp/esp-idf/components/esp_security /home/andre/esp/esp-idf/components/esp_stdio /home/andre/esp/esp-idf/components/esp_system /home/andre/esp/esp-idf/components/esp_tee /home/andre/esp/esp-idf/components/esp_timer /home/andre/esp/esp-idf/components/esp_trace /home/andre/esp/esp-idf/components/esp_usb_cdc_rom_console /home/andre/esp/esp-idf/components/esp_wifi /home/andre/esp/esp-idf/components/espcoredump /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/managed_components/espressif__led_strip /home/andre/esp/esp-idf/components/esptool_py /home/andre/esp/esp-idf/components/fatfs /home/andre/esp/esp-idf/components/freertos /home/andre/esp/esp-idf/components/hal /home/andre/esp/esp-idf/components/heap /home/andre/esp/esp-idf/components/http_parser /home/andre/esp/esp-idf/components/ieee802154 /home/andre/esp/esp-idf/components/log /home/andre/esp/esp-idf/components/lwip /home/andre/esp/esp-idf/components/mbedtls /home/andre/esp/esp-idf/components/nvs_flash /home/andre/esp/esp-idf/components/nvs_sec_provider /home/andre/esp/esp-idf/components/openthread /home/andre/esp/esp-idf/components/partition_table /home/andre/esp/esp-idf/components/protobuf-c /home/andre/esp/esp-idf/components/protocomm /home/andre/esp/esp-idf/components/pthread /home/andre/esp/esp-idf/components/riscv /home/andre/esp/esp-idf/components/rt /home/andre/esp/esp-idf/components/sdmmc /home/andre/esp/esp-idf/components/soc /home/andre/esp/esp-idf/components/spi_flash /home/andre/esp/esp-idf/components/spiffs /home/andre/esp/esp-idf/components/tcp_transport /home/andre/esp/esp-idf/components/ulp /home/andre/esp/esp-idf/components/unity /home/andre/esp/esp-idf/components/vfs /home/andre/esp/esp-idf/components/wear_levelling /home/andre/esp/esp-idf/components/wpa_supplicant
+-- Configuring done (5.9s)
+-- Generating done (0.3s)
+-- Build files have been written to: /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build
+[1/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/semaphore.c.obj
+[2/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/scenario.c.obj
+[3/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/config.c.obj
+[4/21] Building C object esp-idf/esp_app_format/CMakeFiles/__idf_esp_app_format.dir/esp_app_desc.c.obj
+[5/21] Performing build step for 'bootloader'
+[1/1] cd /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader && /home/andre/.espressif/python_env/idf6.1_py3.12_env/bin/python /home/andre/esp/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader/bootloader.bin
+Bootloader binary size 0x5600 bytes. 0x2a00 bytes (33%) free.
+[6/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/led_view.c.obj
+[7/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/ships.c.obj
+[8/21] Linking C static library esp-idf/esp_app_format/libesp_app_format.a
+[9/21] No install step for 'bootloader'
+[10/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/thread.c.obj
+[11/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/main.c.obj
+[12/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/interrupt_control.c.obj
+[13/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/scheduler.c.obj
+[14/21] Completed 'bootloader'
+[15/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/serial_protocol.c.obj
+[16/21] Building C object esp-idf/Ships/CMakeFiles/__idf_Ships.dir/canal.c.obj
+[17/21] Linking C static library esp-idf/Ships/libShips.a
+[18/21] Generating esp-idf/esp_system/ld/sections.ld
+Skipping linker fragment parsing, fragment files unchanged
+[19/21] Linking CXX executable SchedulingShips.elf
+[20/21] Generating binary image from built executable
+esptool v5.3.dev3
+Creating ESP32-C6 image...
+Merged 4 ELF sections.
+Successfully created ESP32-C6 image.
+Generated /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/SchedulingShips.bin
+[21/21] cd /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build && /home/andre/.espressif/python_env/idf6.1_py3.12_env/bin/python /home/andre/esp/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/partition_table/partition-table.bin /home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/SchedulingShips.bin
+SchedulingShips.bin binary size 0x39270 bytes. Smallest app partition is 0x100000 bytes. 0xc6d90 bytes (78%) free.

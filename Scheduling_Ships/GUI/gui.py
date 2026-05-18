@@ -1,9 +1,7 @@
 # gui.py
 # GUI rápida de un solo hilo para Scheduling Ships ESP32-C6.
 #
-# Esta versión consulta preferiblemente SNAPSHOT, una sola línea compacta.
-# Si el firmware todavía no tiene SNAPSHOT, use el botón "Modo legado"
-# para consultar STATUS/CANAL/THREADS con menor frecuencia.
+# Esta versión usa SNAPSHOT para refresco rápido e incluye botones de interrupción.
 #
 # Teclas:
 #   w        cerrar elegantemente
@@ -31,8 +29,8 @@ class SchedulingShipsGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Scheduling Ships - ESP32-C6")
-        self.root.geometry("1220x780")
-        self.root.minsize(1080, 700)
+        self.root.geometry("1240x800")
+        self.root.minsize(1100, 720)
 
         self.client = SerialClient()
         self.connected = False
@@ -58,7 +56,7 @@ class SchedulingShipsGUI:
         self.max_queue_var = tk.StringVar(value="4")
         self.queue_visible_var = tk.StringVar(value="4")
 
-        self.last_status = {}
+        self.last_status = {"INT": "0"}
         self.canal_positions = {}
         self.left_ready = []
         self.right_ready = []
@@ -85,6 +83,7 @@ class SchedulingShipsGUI:
 
         self._build_connection_panel(top)
         self._build_runtime_panel(top)
+        self._build_interrupt_panel(top)
         self._build_config_panel(top)
 
         mid = ttk.PanedWindow(main, orient=tk.HORIZONTAL)
@@ -107,7 +106,7 @@ class SchedulingShipsGUI:
         frame.pack(side=tk.LEFT, fill=tk.X, expand=False, padx=(0, 8))
 
         ttk.Label(frame, text="Puerto").grid(row=0, column=0, sticky="w")
-        self.port_combo = ttk.Combobox(frame, textvariable=self.port_var, width=16)
+        self.port_combo = ttk.Combobox(frame, textvariable=self.port_var, width=14)
         self.port_combo["values"] = SerialClient.list_ports()
         self.port_combo.grid(row=0, column=1, padx=4)
 
@@ -133,6 +132,18 @@ class SchedulingShipsGUI:
         ttk.Checkbutton(frame, text="SNAPSHOT", variable=self.fast_snapshot_mode).grid(row=2, column=1, sticky="w")
         ttk.Entry(frame, textvariable=self.auto_poll_ms_var, width=6).grid(row=2, column=2, sticky="w")
         ttk.Label(frame, text="ms").grid(row=2, column=3, sticky="w")
+
+    def _build_interrupt_panel(self, parent):
+        frame = ttk.LabelFrame(parent, text="Interrupción", padding=8)
+        frame.pack(side=tk.LEFT, fill=tk.X, expand=False, padx=(0, 8))
+
+        ttk.Button(frame, text="INT ON", command=lambda: self.send_command("INTERRUPT ON")).grid(row=0, column=0, padx=3)
+        ttk.Button(frame, text="INT OFF", command=lambda: self.send_command("INTERRUPT OFF")).grid(row=0, column=1, padx=3)
+        ttk.Button(frame, text="TOGGLE", command=lambda: self.send_command("INTERRUPT TOGGLE")).grid(row=0, column=2, padx=3)
+
+        ttk.Button(frame, text="STATUS", command=lambda: self.send_command("INTERRUPT STATUS")).grid(row=1, column=0, padx=3, pady=3)
+        ttk.Button(frame, text="SENSOR ON", command=lambda: self.send_command("INTERRUPT SENSOR ON")).grid(row=1, column=1, padx=3, pady=3)
+        ttk.Button(frame, text="SENSOR OFF", command=lambda: self.send_command("INTERRUPT SENSOR OFF")).grid(row=1, column=2, padx=3, pady=3)
 
     def _build_config_panel(self, parent):
         frame = ttk.LabelFrame(parent, text="Configuración", padding=8)
@@ -169,7 +180,7 @@ class SchedulingShipsGUI:
         frame = ttk.LabelFrame(parent, text="Vista lógica", padding=8)
         frame.pack(fill=tk.X, expand=False)
 
-        self.canvas = tk.Canvas(frame, height=250, bg="#1f1f1f", highlightthickness=0)
+        self.canvas = tk.Canvas(frame, height=260, bg="#1f1f1f", highlightthickness=0)
         self.canvas.pack(fill=tk.X, expand=True)
 
     def _build_console_panel(self, parent):
@@ -264,7 +275,6 @@ class SchedulingShipsGUI:
 
     def _read_serial_available(self):
         for line in self.client.poll_lines():
-            # SNAPSHOT es frecuente; no ensuciar consola.
             if not line.startswith("SNAPSHOT "):
                 self.log(line)
             self.parse_line(line)
@@ -277,7 +287,6 @@ class SchedulingShipsGUI:
                 self.log(f"ERR SNAPSHOT {exc}")
             return
 
-        # Modo legado: no pedir todo en cada frame.
         commands = ["CANAL", "THREADS", "STATUS"]
         cmd = commands[self._legacy_phase % len(commands)]
         self._legacy_phase += 1
@@ -320,7 +329,7 @@ class SchedulingShipsGUI:
             self.status_var.set(f"Conectado a {port}")
             self.log(f"Conectado a {port} @ {baud}")
 
-            for cmd in ["CONFIG", "SNAPSHOT"]:
+            for cmd in ["CONFIG", "INTERRUPT STATUS", "SNAPSHOT"]:
                 self.client.send(cmd)
 
         except Exception as exc:
@@ -336,7 +345,12 @@ class SchedulingShipsGUI:
             self.client.send(command)
             self.log(f"> {command}")
 
-            if command in {"START", "PAUSE", "STEP", "RESET"} or command in VALID_SHIP_TOKENS or command.startswith("CONFIG"):
+            if (
+                command in {"START", "PAUSE", "STEP", "RESET"}
+                or command in VALID_SHIP_TOKENS
+                or command.startswith("CONFIG")
+                or command.startswith("INTERRUPT")
+            ):
                 self.request_refresh()
 
         except Exception as exc:
@@ -489,6 +503,15 @@ class SchedulingShipsGUI:
             self.canal_positions.clear()
             return
 
+        if line.startswith("FLOW "):
+            # Ej: FLOW ... INTERRUPTED=1 si luego se agrega.
+            self.last_status.update(self.parse_key_values(line))
+            return
+
+        if line.startswith("INTERRUPT "):
+            self._parse_interrupt_status(line)
+            return
+
         if line.startswith("POS "):
             self._parse_canal_position(line)
             return
@@ -511,12 +534,26 @@ class SchedulingShipsGUI:
                 result[k] = v
         return result
 
+    def _parse_interrupt_status(self, line):
+        values = self.parse_key_values(line)
+        # Acepta ACTIVE=1, INT=1 o INTERRUPTED=1.
+        if "ACTIVE" in values:
+            self.last_status["INT"] = values["ACTIVE"]
+        if "INT" in values:
+            self.last_status["INT"] = values["INT"]
+        if "INTERRUPTED" in values:
+            self.last_status["INT"] = values["INTERRUPTED"]
+        self.last_status.update(values)
+
     def _parse_snapshot(self, line):
         values = self.parse_key_values(line)
 
         self.last_status.update(values)
 
-        # Canal: C=pos:id:type:dir:rem:slot,pos:id:type:dir:rem:slot
+        # Acepta INT=0/1 desde SNAPSHOT.
+        if "INT" not in self.last_status:
+            self.last_status["INT"] = "0"
+
         self.canal_positions.clear()
         canal_text = values.get("C", "")
 
@@ -620,7 +657,7 @@ class SchedulingShipsGUI:
         self.canvas.delete("all")
 
         width = max(self.canvas.winfo_width(), 900)
-        height = max(self.canvas.winfo_height(), 240)
+        height = max(self.canvas.winfo_height(), 250)
 
         self.canvas.create_rectangle(0, 0, width, height, fill="#1f1f1f", outline="")
 
@@ -628,6 +665,7 @@ class SchedulingShipsGUI:
         sched = self.last_status.get("SCHED", self.sched_var.get())
         flow = self.last_status.get("FLOW", self.flow_var.get())
         direction = self.last_status.get("DIR", "FREE")
+        interrupted = self.last_status.get("INT", "0") in {"1", "ON", "TRUE", "ACTIVE"}
 
         try:
             length = int(self.last_status.get("LEN", self.canal_length_var.get() or 20))
@@ -643,12 +681,12 @@ class SchedulingShipsGUI:
             8,
             anchor="nw",
             fill="#eeeeee",
-            text=f"SCHED={sched} | FLOW={flow} | DIR={flow_arrow} | RUN={run} | LEN={length} | CANAL={count}"
+            text=f"SCHED={sched} | FLOW={flow} | DIR={flow_arrow} | RUN={run} | LEN={length} | CANAL={count} | INT={int(interrupted)}"
         )
 
         x0 = 210
         x1 = width - 210
-        y = 110
+        y = 120
         segment_h = 34
         led_count = 10
         led_w = (x1 - x0) / led_count
@@ -664,8 +702,65 @@ class SchedulingShipsGUI:
             self.canvas.create_rectangle(lx0, y - segment_h, lx1, y + segment_h, outline="#555555")
             self.canvas.create_text((lx0 + lx1) / 2, y + segment_h + 12, fill="#999999", text=str(i))
 
-        # Flecha visual del flujo.
+        self.draw_flow_arrow(x0, x1, y, segment_h, direction, interrupted)
+
+        # Puertas: blanco parpadeante abiertas, rojo fijo en interrupción.
+        gate_color = "#cc2222" if interrupted else ("#dddddd" if self.blink_on else "#333333")
+        self.canvas.create_oval(x0 - 40, y - 16, x0 - 12, y + 16, fill=gate_color, outline="")
+        self.canvas.create_oval(x1 + 12, y - 16, x1 + 40, y + 16, fill=gate_color, outline="")
+        self.canvas.create_text(x0 - 26, y + 36, fill="#cccccc", text="Gate")
+        self.canvas.create_text(x1 + 26, y + 36, fill="#cccccc", text="Gate")
+
+        if length <= 0:
+            length = 1
+
+        for pos, data in self.canal_positions.items():
+            if not data:
+                continue
+
+            try:
+                p = int(pos)
+            except ValueError:
+                continue
+
+            if "SLOT" in data:
+                try:
+                    slot = int(data["SLOT"])
+                except ValueError:
+                    slot = min(led_count - 1, max(0, (p * led_count) // length))
+            else:
+                slot = min(led_count - 1, max(0, (p * led_count) // length))
+
+            cx = x0 + slot * led_w + led_w / 2
+            cy = y
+
+            ship_type = data.get("TYPE", "UNKNOWN")
+            ship_id = data.get("SHIP", data.get("ID", "?"))
+            color = self.color_for_type(ship_type)
+
+            self.canvas.create_oval(cx - 16, cy - 16, cx + 16, cy + 16, fill=color, outline="#ffffff")
+            self.canvas.create_text(cx, cy, fill="#ffffff", text=str(ship_id))
+            self.canvas.create_text(cx, cy - 28, fill="#dddddd", text=ship_type[0:3])
+
+        self.draw_legend(height)
+
+    def draw_flow_arrow(self, x0, x1, y, segment_h, direction, interrupted):
         arrow_y = y - segment_h - 22
+
+        if interrupted:
+            self.canvas.create_text(
+                (x0 + x1) / 2,
+                arrow_y - 12,
+                fill="#cc2222",
+                text="Interrupción activa / canal cerrado"
+            )
+            self.canvas.create_line(
+                x0 + 20, arrow_y,
+                x1 - 20, arrow_y,
+                fill="#cc2222",
+                width=4
+            )
+            return
 
         if direction == "L_TO_R":
             self.canvas.create_line(
@@ -704,45 +799,6 @@ class SchedulingShipsGUI:
                 fill="#888888",
                 text="Canal libre / sin dirección activa"
             )
-
-        gate_color = "#dddddd" if self.blink_on else "#333333"
-        self.canvas.create_oval(x0 - 40, y - 16, x0 - 12, y + 16, fill=gate_color, outline="")
-        self.canvas.create_oval(x1 + 12, y - 16, x1 + 40, y + 16, fill=gate_color, outline="")
-        self.canvas.create_text(x0 - 26, y + 36, fill="#cccccc", text="Gate")
-        self.canvas.create_text(x1 + 26, y + 36, fill="#cccccc", text="Gate")
-
-        if length <= 0:
-            length = 1
-
-        for pos, data in self.canal_positions.items():
-            if not data:
-                continue
-
-            try:
-                p = int(pos)
-            except ValueError:
-                continue
-
-            if "SLOT" in data:
-                try:
-                    slot = int(data["SLOT"])
-                except ValueError:
-                    slot = min(led_count - 1, max(0, (p * led_count) // length))
-            else:
-                slot = min(led_count - 1, max(0, (p * led_count) // length))
-
-            cx = x0 + slot * led_w + led_w / 2
-            cy = y
-
-            ship_type = data.get("TYPE", "UNKNOWN")
-            ship_id = data.get("SHIP", data.get("ID", "?"))
-            color = self.color_for_type(ship_type)
-
-            self.canvas.create_oval(cx - 16, cy - 16, cx + 16, cy + 16, fill=color, outline="#ffffff")
-            self.canvas.create_text(cx, cy, fill="#ffffff", text=str(ship_id))
-            self.canvas.create_text(cx, cy - 28, fill="#dddddd", text=ship_type[0:3])
-
-        self.draw_legend(height)
 
     def draw_ready_queue(self, title, ships, x, y):
         self.canvas.create_text(x, y - 22, anchor="nw", fill="#eeeeee", text=title)
@@ -783,6 +839,7 @@ class SchedulingShipsGUI:
             self.canvas.create_rectangle(x, legend_y, x + 18, legend_y + 18, fill=color, outline="")
             self.canvas.create_text(x + 24, legend_y + 9, anchor="w", fill="#eeeeee", text=label)
             x += 130
+
     def flow_arrow_text(self, direction):
         if direction == "L_TO_R":
             return "L → R"

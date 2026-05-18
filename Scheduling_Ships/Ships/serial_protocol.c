@@ -6,6 +6,7 @@
 #include "thread.h"
 #include "canal.h"
 #include "scenario.h"
+#include "interrupt_control.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -397,6 +398,7 @@ static void serial_protocol_reset_system(void)
     scheduler_init();
     ships_init();
     canal_init();
+    interrupt_control_reset();
     led_view_clear();
     serial_protocol_send_line("OK RESET");
 }
@@ -419,13 +421,14 @@ static void serial_protocol_handle_command(const char *cmd_const)
 
         snprintf(line,
                  sizeof(line),
-                 "STATE PHASE=4 SHIPS=%d READY=%d CANAL=%d SCHED=%s RUN=%d FLOW=%s QUANTUM=%d LETRERO=%d W=%d LEN=%d MAX_IN=%d MOVE_MS=%d",
+                 "STATE PHASE=4 SHIPS=%d READY=%d CANAL=%d SCHED=%s RUN=%d FLOW=%s INTERRUPTED=%d QUANTUM=%d LETRERO=%d W=%d LEN=%d MAX_IN=%d MOVE_MS=%d",
                  ships_get_count(),
                  scheduler_ready_count(),
                  canal_get_ship_count(),
                  scheduler_algo_name(scheduler_get_algorithm()),
                  scheduler_is_enabled(),
                  canal_flow_name(cfg->flow_algo),
+                 canal_is_interrupted(),
                  cfg->quantum_ms,
                  cfg->letrero_ms,
                  cfg->equidad_w,
@@ -452,6 +455,35 @@ static void serial_protocol_handle_command(const char *cmd_const)
         char line[256];
         canal_format_flow_status(line, sizeof(line));
         serial_protocol_send_line(line);
+    }
+    else if (strcmp(cmd, "INTERRUPT STATUS") == 0 || strcmp(cmd, "INTERRUPT") == 0) {
+        char line[256];
+        interrupt_control_format_status(line, sizeof(line));
+        serial_protocol_send_line(line);
+    }
+    else if (strcmp(cmd, "INTERRUPT ON") == 0) {
+        interrupt_control_manual_on();
+        serial_protocol_send_line("OK INTERRUPT ON");
+    }
+    else if (strcmp(cmd, "INTERRUPT OFF") == 0) {
+        interrupt_control_manual_off();
+        serial_protocol_send_line("OK INTERRUPT OFF");
+    }
+    else if (strcmp(cmd, "INTERRUPT TOGGLE") == 0) {
+        interrupt_control_manual_toggle();
+        serial_protocol_send_line("OK INTERRUPT TOGGLE");
+    }
+    else if (strcmp(cmd, "INTERRUPT SENSOR ON") == 0) {
+        interrupt_control_sensor_enable(1);
+        serial_protocol_send_line("OK INTERRUPT SENSOR ON");
+    }
+    else if (strcmp(cmd, "INTERRUPT SENSOR OFF") == 0) {
+        interrupt_control_sensor_enable(0);
+        serial_protocol_send_line("OK INTERRUPT SENSOR OFF");
+    }
+    else if (strcmp(cmd, "INTERRUPT SENSOR REARM") == 0) {
+        interrupt_control_sensor_rearm();
+        serial_protocol_send_line("OK INTERRUPT SENSOR REARM");
     }
     else if (strcmp(cmd, "CONFIG") == 0) {
         serial_protocol_send_config();
@@ -536,13 +568,14 @@ static void serial_protocol_send_snapshot(void)
 
     used += snprintf(line,
                  sizeof(line),
-                 "SNAPSHOT SCHED=%s FLOW=%s RUN=%d LEN=%d COUNT=%d DIR=%s ",
+                 "SNAPSHOT SCHED=%s FLOW=%s RUN=%d LEN=%d COUNT=%d DIR=%s INT=%d ",
                  scheduler_algo_name(scheduler_get_algorithm()),
                  canal_flow_name(cfg->flow_algo),
                  scheduler_is_enabled(),
                  canal_get_length(),
                  canal_get_ship_count(),
-                 canal_dir_name(visual_dir));
+                 canal_dir_name(visual_dir),
+                 canal_is_interrupted());
 
     /*
      * READY izquierda.
