@@ -167,10 +167,7 @@ static int scheduler_should_preempt(SimThread *current, SimThread *candidate)
             return current->quantum_used_ms >= g_scheduler.quantum_ms;
 
         case SCHED_PRIORITY:
-        /*
-        * Prioridad se deja NO apropiativo por decisión de diseño.
-        */
-        return 0;
+            return 0;
 
         case SCHED_STRN:
             return candidate->remaining_ms < current->remaining_ms;
@@ -416,123 +413,86 @@ int scheduler_apply_preemption(void)
         return 0;
     }
 
-    if (!g_scheduler.ready_head) {
-        return 0;
-    }
-
-    /*
-     * Mantener quantum actualizado desde config.
-     */
     g_scheduler.quantum_ms = cfg->quantum_ms;
 
-    SimThread *best_ready = scheduler_find_best_ready();
-
-    if (!best_ready) {
-        return 0;
-    }
-
-    Ship *target_ship = NULL;
-    SimThread *target_thread = NULL;
+    /*
+     * Importante de diseño:
+     * - STRN y EDF NO deben expulsar barcos solo porque existe un candidato
+     *   mejor en READY o detrás en el canal.
+     * - La apropiación fuerte de STRN/EDF ocurre en canal_advance_one_position(),
+     *   exactamente cuando el barco apropiativo intenta tomar una posición lógica
+     *   o un segmento físico ocupado por un barco menos conveniente.
+     *
+     * Esto evita el comportamiento incorrecto donde el bloqueador salía apenas
+     * entraba el barco urgente, antes de que realmente disputaran el recurso.
+     */
 
     int len = canal_get_length();
 
     /*
-     * Actualizar quantum de los barcos cruzando.
-     * Luego buscar un candidato a apropiación.
+     * Todo barco que está cruzando consume quantum lógico con el tiempo.
+     * Esto se actualiza aunque no haya READY, porque luego RR puede necesitar
+     * el valor para decidir si el recurso ya agotó su turno.
      */
     for (int pos = 0; pos < len; pos++) {
         Ship *ship = canal_get_ship_at_position(pos);
 
-        if (!ship || !ship->thread) {
+        if (!ship || !ship->thread || ship->state != SHIP_CROSSING) {
             continue;
         }
 
-        if (ship->state != SHIP_CROSSING) {
-            continue;
-        }
-
-        SimThread *running = ship->thread;
-
-        /*
-         * Mientras está en canal, consume quantum.
-         */
-        running->quantum_used_ms += cfg->system_tick_ms;
-
-        switch (g_scheduler.algo) {
-            case SCHED_RR:
-                /*
-                 * RR solo tiene sentido si hay alguien esperando.
-                 */
-                if (running->quantum_used_ms >= g_scheduler.quantum_ms) {
-                    target_ship = ship;
-                    target_thread = running;
-                }
-                break;
-
-            case SCHED_STRN:
-                /*
-                 * STRN: si hay uno en READY con menor remaining,
-                 * se apropia uno que tenga mayor remaining.
-                 */
-                if (best_ready->remaining_ms < running->remaining_ms) {
-                    if (!target_thread ||
-                        running->remaining_ms > target_thread->remaining_ms) {
-                        target_ship = ship;
-                        target_thread = running;
-                    }
-                }
-                break;
-
-            case SCHED_EDF:
-                /*
-                 * EDF: si hay uno en READY con deadline más urgente,
-                 * se apropia uno menos urgente.
-                 */
-                if (best_ready->deadline_ms < running->deadline_ms) {
-                    if (!target_thread ||
-                        running->deadline_ms > target_thread->deadline_ms) {
-                        target_ship = ship;
-                        target_thread = running;
-                    }
-                }
-                break;
-
-            case SCHED_PRIORITY:
-            case SCHED_FCFS:
-            case SCHED_SJF:
-            default:
-                /*
-                 * No apropiativos.
-                 */
-                break;
-        }
-
-        if (target_ship && g_scheduler.algo == SCHED_RR) {
-            break;
-        }
-    }
-
-    if (!target_ship || !target_thread) {
-        return 0;
+        ship->thread->quantum_used_ms += cfg->system_tick_ms;
     }
 
     /*
-     * Importante:
-     * Se saca del canal sin destruirlo.
-     * canal_preempt_ship() lo devuelve a READY.
+     * Apropiación externa por quantum:
+     * RR sí puede quitar un barco del canal cuando agotó su quantum y hay
+     * otro proceso esperando. STRN y EDF se dejan como apropiación directa
+     * al disputar el recurso, no como expulsión anticipada.
      */
-    if (canal_preempt_ship(target_ship)) {
-        target_thread->quantum_used_ms = 0;
+    if (g_scheduler.algo != SCHED_RR) {
+        return 0;
+    }
 
-        if (g_scheduler.running == target_thread) {
-            g_scheduler.running = NULL;
+    if (!g_scheduler.ready_head) {
+        return 0;
+    }
+
+    for (int pos = 0; pos < len; pos++) {
+        Ship *ship = canal_get_ship_at_position(pos);
+
+        if (!ship || !ship->thread || ship->state != SHIP_CROSSING) {
+            continue;
         }
 
-        g_scheduler.total_preemptions++;
-        return 1;
+        if (ship->thread->quantum_used_ms >= g_scheduler.quantum_ms) {
+            SimThread *old = ship->thread;
+
+            if (canal_preempt_ship(ship)) {
+                old->quantum_used_ms = 0;
+
+                if (g_scheduler.running == old) {
+                    g_scheduler.running = NULL;
+                }
+
+                g_scheduler.total_preemptions++;
+                return 1;
+            }
+        }
     }
 
     return 0;
+}
+
+void scheduler_note_preemption(void)
+{
+    /*
+     * Contador centralizado de apropiaciones.
+     * canal.c lo usa cuando la apropiación ocurre dentro del avance
+     * físico/lógico del canal, por ejemplo cuando EDF o STRN quitan
+     * directamente el barco que bloquea al proceso más urgente.
+     */
+    g_scheduler.total_preemptions++;
 }
 
 void scheduler_tick(void)

@@ -67,21 +67,28 @@ static void task_project_core(void *arg)
         serial_protocol_poll();
 
         if (scheduler_is_enabled()) {
-        /*
-        * Primero revisar apropiación.
-        * Si RR/STRN/EDF decide sacar un barco del canal,
-        * ese cupo queda disponible antes del despacho.
-        */
-        scheduler_apply_preemption();
+            /*
+            * Primero aplicar apropiación.
+            * RR, STRN y EDF pueden sacar un barco del canal
+            * y devolverlo a READY sin destruirlo.
+            */
+            scheduler_apply_preemption();
 
-        while (scheduler_dispatch_to_canal()) {
-            /* llenar cupos disponibles mientras el flujo lo permita */
+            /*
+             * Primero se mueve el canal. Si un barco apropiativo alcanza
+             * a un bloqueador durante este avance, canal.c puede quitar
+             * al bloqueador y permitir que el ganador tome el recurso
+             * inmediatamente. Después de mover se rellenan cupos libres.
+             */
+            canal_tick();
+
+            while (scheduler_dispatch_to_canal()) {
+                /* llenar cupos disponibles mientras el flujo lo permita */
+            }
+
+            ships_sync_states_from_threads();
+            led_view_render_phase4();
         }
-
-        canal_tick();
-        ships_sync_states_from_threads();
-        led_view_render_phase4();
-    }
 
         vTaskDelay(pdMS_TO_TICKS(cfg->system_tick_ms));
     }

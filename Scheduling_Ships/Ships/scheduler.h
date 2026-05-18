@@ -38,6 +38,7 @@ SimThread *scheduler_pick_next(void);
 void scheduler_tick(void);
 void scheduler_step_once(void);
 int scheduler_apply_preemption(void);
+void scheduler_note_preemption(void);
 
 int scheduler_ready_count(void);
 SimThread *scheduler_get_running(void);

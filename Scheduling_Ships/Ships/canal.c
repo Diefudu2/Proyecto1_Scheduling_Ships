@@ -34,6 +34,9 @@ static int canal_entry_position_for_ship(Ship *ship);
 static int canal_next_position_for_ship(Ship *ship);
 
 static int canal_visual_slot_has_other_ship(int slot, Ship *self);
+static Ship *canal_find_ship_in_visual_slot(int slot, Ship *self);
+static int canal_preemptive_ship_beats(SchedAlgo algo, Ship *behind, Ship *front);
+static int canal_try_preempt_blocker_for_ship(Ship *behind, Ship *front);
 static int canal_has_waiting_in_dir(CanalDirection dir);
 static int canal_flow_allows_entry(Ship *ship);
 
@@ -168,10 +171,14 @@ int canal_position_to_led_index(int position)
     return LED_CANAL_START + slot;
 }
 
-static int canal_visual_slot_has_other_ship(int slot, Ship *self)
+static Ship *canal_find_ship_in_visual_slot(int slot, Ship *self)
 {
     if (slot < 0 || slot >= LED_CANAL_COUNT) {
-        return 1;
+        return NULL;
+    }
+
+    if (g_canal.length <= 0 || g_canal.length > CONFIG_MAX_CANAL_POSITIONS) {
+        return NULL;
     }
 
     for (int pos = 0; pos < g_canal.length; pos++) {
@@ -182,11 +189,20 @@ static int canal_visual_slot_has_other_ship(int slot, Ship *self)
         }
 
         if (canal_position_to_led_slot(pos) == slot) {
-            return 1;
+            return other;
         }
     }
 
-    return 0;
+    return NULL;
+}
+
+static int canal_visual_slot_has_other_ship(int slot, Ship *self)
+{
+    if (slot < 0 || slot >= LED_CANAL_COUNT) {
+        return 1;
+    }
+
+    return canal_find_ship_in_visual_slot(slot, self) != NULL;
 }
 
 
@@ -419,13 +435,17 @@ int canal_try_enter(Ship *ship)
     }
 
     int entry_pos;
+    int restoring_from_saved_position = 0;
 
     /*
-    * Si el barco fue apropiado antes, intenta volver a su posición guardada.
-    * Si esa posición ya no está disponible, simplemente no entra todavía.
-    */
+     * Si el barco fue apropiado, intenta volver a la posición lógica
+     * donde quedó. Esta restauración NO cuenta como un nuevo barco
+     * admitido por Equidad, porque el barco ya había consumido turno
+     * antes de ser apropiado.
+     */
     if (canal_valid_position(ship->saved_position)) {
         entry_pos = ship->saved_position;
+        restoring_from_saved_position = 1;
     } else {
         entry_pos = canal_entry_position_for_ship(ship);
     }
@@ -492,7 +512,8 @@ int canal_try_enter(Ship *ship)
      * Actualización de estado de flujo.
      */
     if (cfg->flow_algo == FLOW_EQUIDAD &&
-        desired_dir == g_equidad_turn_dir) {
+        desired_dir == g_equidad_turn_dir &&
+        !restoring_from_saved_position) {
         g_equidad_passed_in_turn++;
     }
 
@@ -506,7 +527,7 @@ int canal_try_enter(Ship *ship)
      * se cierra el lote actual para evitar que un lado drene
      * indefinidamente por prioridad.
      */
-    if (cfg->flow_algo == FLOW_TICO) {
+    if (cfg->flow_algo == FLOW_TICO && !restoring_from_saved_position) {
         int waiting_left = canal_has_waiting_in_dir(CANAL_DIR_LEFT_TO_RIGHT);
         int waiting_right = canal_has_waiting_in_dir(CANAL_DIR_RIGHT_TO_LEFT);
 
@@ -565,10 +586,10 @@ int canal_preempt_ship(Ship *ship)
     }
 
     /*
-     * Guardar punto lógico donde iba el barco.
-     * Luego, cuando vuelva a ser calendarizado, intentará restaurarse ahí.
+     * Guardar posición lógica donde quedó.
      */
     ship->saved_position = pos;
+    ship->thread->saved_position = pos;
 
     /*
      * Liberar recurso lógico de posición.
@@ -586,17 +607,14 @@ int canal_preempt_ship(Ship *ship)
     }
 
     /*
-     * El barco vuelve a READY sin perder su remaining_ms.
+     * Vuelve a READY sin perder remaining_ms.
      */
     ship->position = -1;
     ship->state = SHIP_READY;
-    thread_preempt(ship->thread);
 
+    thread_preempt(ship->thread);
     scheduler_add_ready(ship->thread);
 
-    /*
-     * Si el canal quedó vacío, se actualiza el flujo.
-     */
     canal_update_flow_when_empty();
 
     return 1;
@@ -605,6 +623,58 @@ int canal_preempt_ship(Ship *ship)
 int canal_has_crossing_ships(void)
 {
     return g_canal.ship_count > 0;
+}
+static int canal_preemptive_ship_beats(SchedAlgo algo, Ship *behind, Ship *front)
+{
+    if (!behind || !front || !behind->thread || !front->thread) {
+        return 0;
+    }
+
+    switch (algo) {
+        case SCHED_RR:
+            return front->thread->quantum_used_ms >= config_get()->quantum_ms;
+
+        case SCHED_STRN:
+            return behind->remaining_ms < front->remaining_ms;
+
+        case SCHED_EDF:
+            return behind->deadline_ms < front->deadline_ms;
+
+        case SCHED_PRIORITY:
+        case SCHED_FCFS:
+        case SCHED_SJF:
+        default:
+            return 0;
+    }
+}
+
+static int canal_try_preempt_blocker_for_ship(Ship *behind, Ship *front)
+{
+    if (!behind || !front) {
+        return 0;
+    }
+
+    SchedAlgo algo = scheduler_get_algorithm();
+
+    if (algo != SCHED_RR && algo != SCHED_STRN && algo != SCHED_EDF) {
+        return 0;
+    }
+
+    if (!canal_preemptive_ship_beats(algo, behind, front)) {
+        return 0;
+    }
+
+    /*
+     * Apropiación real del recurso: el bloqueador sale del canal y vuelve
+     * a READY. El barco que estaba bloqueado avanza solo después de que la
+     * posición lógica quedó libre; por lo tanto no hay rebase ni colisión.
+     */
+    if (!canal_preempt_ship(front)) {
+        return 0;
+    }
+
+    scheduler_note_preemption();
+    return 1;
 }
 
 static int canal_advance_one_position(Ship *ship)
@@ -623,9 +693,6 @@ static int canal_advance_one_position(Ship *ship)
         return 0;
     }
 
-    /*
-     * Si ya llegó al extremo de salida, finaliza.
-     */
     if (canal_ship_has_finished(ship)) {
         canal_finish_ship(ship);
         return 0;
@@ -633,28 +700,23 @@ static int canal_advance_one_position(Ship *ship)
 
     int next_pos = canal_next_position_for_ship(ship);
 
-    /*
-     * Si el siguiente paso se sale del canal, finaliza.
-     */
     if (!canal_valid_position(next_pos)) {
         canal_finish_ship(ship);
         return 0;
     }
 
-    /*
-     * Protección lógica:
-     * si la siguiente posición lógica está ocupada,
-     * el barco se queda esperando. No rebasa.
-     */
-    if (g_canal.positions[next_pos] != NULL) {
-        return 0;
+    Ship *logical_blocker = g_canal.positions[next_pos];
+
+    if (logical_blocker && logical_blocker != ship) {
+        if (!canal_try_preempt_blocker_for_ship(ship, logical_blocker)) {
+            return 0;
+        }
+
+        if (g_canal.positions[next_pos] != NULL) {
+            return 0;
+        }
     }
 
-    /*
-     * Protección visual/física:
-     * si el siguiente paso cae en otro LED físico ocupado
-     * por otro barco, se queda esperando.
-     */
     int current_slot = canal_position_to_led_slot(current_pos);
     int next_slot = canal_position_to_led_slot(next_pos);
 
@@ -662,37 +724,30 @@ static int canal_advance_one_position(Ship *ship)
         return 0;
     }
 
-    /*
-     * Si sigue dentro del mismo segmento físico, puede avanzar.
-     * Si va a entrar a otro segmento físico, ese segmento debe estar libre.
-     */
-    if (next_slot != current_slot &&
-        canal_visual_slot_has_other_ship(next_slot, ship)) {
-        return 0;
+    if (next_slot != current_slot) {
+        Ship *visual_blocker = canal_find_ship_in_visual_slot(next_slot, ship);
+
+        if (visual_blocker) {
+            if (!canal_try_preempt_blocker_for_ship(ship, visual_blocker)) {
+                return 0;
+            }
+
+            if (canal_find_ship_in_visual_slot(next_slot, ship) != NULL) {
+                return 0;
+            }
+        }
     }
 
-    /*
-     * Tomar semáforo de la siguiente posición lógica.
-     */
     if (!sim_sem_wait(&g_canal.sem_positions[next_pos], ship->thread)) {
         return 0;
     }
 
-    /*
-     * Liberar posición actual.
-     */
     g_canal.positions[current_pos] = NULL;
     sim_sem_signal(&g_canal.sem_positions[current_pos]);
 
-    /*
-     * Ocupar nueva posición.
-     */
     g_canal.positions[next_pos] = ship;
     ship->position = next_pos;
 
-    /*
-     * Si con este movimiento llegó a la salida, finaliza.
-     */
     if (canal_ship_has_finished(ship)) {
         canal_finish_ship(ship);
         return 0;
@@ -721,18 +776,6 @@ static void canal_move_ship(Ship *ship)
         steps = 1;
     }
 
-    /*
-     * Avance por velocidad:
-     * NORMAL  -> 1 paso lógico
-     * FISHER  -> 2 pasos lógicos
-     * PATROL  -> 3 pasos lógicos
-     *
-     * Cada paso se valida individualmente para evitar:
-     * - rebase
-     * - colisión lógica
-     * - superposición visual
-     * - acceso fuera de arreglo
-     */
     int moved = 0;
 
     for (int i = 0; i < steps; i++) {
@@ -751,10 +794,6 @@ static void canal_move_ship(Ship *ship)
         }
     }
 
-    /*
-     * Si no logró moverse porque había otro barco adelante,
-     * no se le descuenta remaining_ms. Está esperando recurso.
-     */
     if (moved <= 0) {
         return;
     }
@@ -768,7 +807,72 @@ static void canal_move_ship(Ship *ship)
     }
 
     ship->thread->remaining_ms = ship->remaining_ms;
+}
 
+int canal_preempt_blocker_for_algo(SchedAlgo algo)
+{
+    if (g_canal.ship_count <= 1) {
+        return 0;
+    }
+
+    if (algo != SCHED_RR && algo != SCHED_STRN && algo != SCHED_EDF) {
+        return 0;
+    }
+
+    if (g_canal.active_dir == CANAL_DIR_LEFT_TO_RIGHT) {
+        for (int pos = 0; pos < g_canal.length - 1; pos++) {
+            Ship *behind = g_canal.positions[pos];
+
+            if (!behind || !behind->thread) {
+                continue;
+            }
+
+            for (int front_pos = pos + 1; front_pos < g_canal.length; front_pos++) {
+                Ship *front = g_canal.positions[front_pos];
+
+                if (!front || !front->thread) {
+                    continue;
+                }
+
+                if (canal_preemptive_ship_beats(algo, behind, front)) {
+                    if (canal_preempt_ship(front)) {
+                        scheduler_note_preemption();
+                        return 1;
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+    else if (g_canal.active_dir == CANAL_DIR_RIGHT_TO_LEFT) {
+        for (int pos = g_canal.length - 1; pos > 0; pos--) {
+            Ship *behind = g_canal.positions[pos];
+
+            if (!behind || !behind->thread) {
+                continue;
+            }
+
+            for (int front_pos = pos - 1; front_pos >= 0; front_pos--) {
+                Ship *front = g_canal.positions[front_pos];
+
+                if (!front || !front->thread) {
+                    continue;
+                }
+
+                if (canal_preemptive_ship_beats(algo, behind, front)) {
+                    if (canal_preempt_ship(front)) {
+                        scheduler_note_preemption();
+                        return 1;
+                    }
+                }
+
+                break;
+            }
+        }
+    }
+
+    return 0;
 }
 
 void canal_tick(void)

@@ -36,6 +36,7 @@ int canal_try_enter(Ship *ship);
 void canal_tick(void);
 
 int canal_preempt_ship(Ship *ship);
+int canal_preempt_blocker_for_algo(SchedAlgo algo);
 int canal_has_crossing_ships(void);
 
 int canal_get_ship_count(void);
