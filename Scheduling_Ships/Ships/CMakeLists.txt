@@ -1,0 +1,18 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "config.c"
+        "serial_protocol.c"
+        "led_view.c"
+        "thread.c"
+        "semaphore.c"
+        "scheduler.c"
+        "ships.c"
+        "canal.c"
+        "scenario.c"
+    INCLUDE_DIRS
+        "."
+    PRIV_REQUIRES
+        esp_driver_usb_serial_jtag
+        led_strip
+)

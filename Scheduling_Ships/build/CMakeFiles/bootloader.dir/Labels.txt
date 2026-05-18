@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/CMakeFiles/bootloader
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/CMakeFiles/bootloader.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/CMakeFiles/bootloader-complete.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
