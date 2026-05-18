@@ -1,0 +1,3 @@
+# Letrero / prioridad
+p p n f
+P N F P

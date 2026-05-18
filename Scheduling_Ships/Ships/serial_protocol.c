@@ -28,6 +28,8 @@ static void serial_protocol_handle_config_command(char *cmd);
 static void serial_protocol_send_threads(void);
 static void serial_protocol_send_canal(void);
 static void serial_protocol_send_config(void);
+static void serial_protocol_send_snapshot(void);
+static void append_text(char *buffer, int buffer_size, int *used, const char *text);
 static int serial_protocol_parse_short_ship(const char *cmd, ShipType *type, ShipDir *dir);
 static int serial_protocol_parse_flow(const char *text, FlowAlgo *out);
 static void serial_protocol_reset_system(void);
@@ -454,6 +456,9 @@ static void serial_protocol_handle_command(const char *cmd_const)
     else if (strcmp(cmd, "CONFIG") == 0) {
         serial_protocol_send_config();
     }
+    else if (strcmp(cmd, "SNAPSHOT") == 0) {
+        serial_protocol_send_snapshot();
+    }
     else if (strncmp(cmd, "CONFIG ", 7) == 0) {
         serial_protocol_handle_config_command(cmd);
     }
@@ -493,6 +498,162 @@ static void serial_protocol_handle_command(const char *cmd_const)
     else {
         serial_protocol_send_line("ERR UNKNOWN_COMMAND");
     }
+}
+
+static void append_text(char *buffer, int buffer_size, int *used, const char *text)
+{
+    if (!buffer || !used || !text || buffer_size <= 0) {
+        return;
+    }
+
+    if (*used >= buffer_size) {
+        return;
+    }
+
+    int written = snprintf(buffer + *used, buffer_size - *used, "%s", text);
+
+    if (written < 0) {
+        return;
+    }
+
+    *used += written;
+
+    if (*used >= buffer_size) {
+        *used = buffer_size - 1;
+        buffer[*used] = '\0';
+    }
+}
+
+static void serial_protocol_send_snapshot(void)
+{
+    char line[900];
+    char item[96];
+    int used = 0;
+
+    SystemConfig *cfg = config_get();
+
+    CanalDirection visual_dir = canal_get_active_dir();
+
+    used += snprintf(line,
+                 sizeof(line),
+                 "SNAPSHOT SCHED=%s FLOW=%s RUN=%d LEN=%d COUNT=%d DIR=%s ",
+                 scheduler_algo_name(scheduler_get_algorithm()),
+                 canal_flow_name(cfg->flow_algo),
+                 scheduler_is_enabled(),
+                 canal_get_length(),
+                 canal_get_ship_count(),
+                 canal_dir_name(visual_dir));
+
+    /*
+     * READY izquierda.
+     */
+    append_text(line, sizeof(line), &used, "LQ=");
+
+    int first = 1;
+    SimThread *cur = scheduler_get_ready_head();
+
+    while (cur) {
+        Ship *s = (Ship *)cur->arg;
+
+        if (s && cur->state == THREAD_READY && s->dir == DIR_LEFT_TO_RIGHT) {
+            if (!first) {
+                append_text(line, sizeof(line), &used, ",");
+            }
+
+            snprintf(item,
+                     sizeof(item),
+                     "%d:%s:%s",
+                     s->id,
+                     ship_type_name(s->type),
+                     ship_dir_name(s->dir));
+
+            append_text(line, sizeof(line), &used, item);
+            first = 0;
+        }
+
+        cur = cur->next;
+    }
+
+    if (first) {
+        append_text(line, sizeof(line), &used, "-");
+    }
+
+    /*
+     * READY derecha.
+     */
+    append_text(line, sizeof(line), &used, " RQ=");
+
+    first = 1;
+    cur = scheduler_get_ready_head();
+
+    while (cur) {
+        Ship *s = (Ship *)cur->arg;
+
+        if (s && cur->state == THREAD_READY && s->dir == DIR_RIGHT_TO_LEFT) {
+            if (!first) {
+                append_text(line, sizeof(line), &used, ",");
+            }
+
+            snprintf(item,
+                     sizeof(item),
+                     "%d:%s:%s",
+                     s->id,
+                     ship_type_name(s->type),
+                     ship_dir_name(s->dir));
+
+            append_text(line, sizeof(line), &used, item);
+            first = 0;
+        }
+
+        cur = cur->next;
+    }
+
+    if (first) {
+        append_text(line, sizeof(line), &used, "-");
+    }
+
+    /*
+     * Barcos en canal.
+     *
+     * Formato:
+     * C=pos:id:type:dir:remaining:led_slot,...
+     */
+    append_text(line, sizeof(line), &used, " C=");
+
+    first = 1;
+
+    int len = canal_get_length();
+
+    for (int pos = 0; pos < len; pos++) {
+        Ship *s = canal_get_ship_at_position(pos);
+
+        if (!s) {
+            continue;
+        }
+
+        if (!first) {
+            append_text(line, sizeof(line), &used, ",");
+        }
+
+        snprintf(item,
+                 sizeof(item),
+                 "%d:%d:%s:%s:%d:%d",
+                 pos,
+                 s->id,
+                 ship_type_name(s->type),
+                 ship_dir_name(s->dir),
+                 s->remaining_ms,
+                 canal_position_to_led_slot(pos));
+
+        append_text(line, sizeof(line), &used, item);
+        first = 0;
+    }
+
+    if (first) {
+        append_text(line, sizeof(line), &used, "-");
+    }
+
+    serial_protocol_send_line(line);
 }
 
 void serial_protocol_poll(void)

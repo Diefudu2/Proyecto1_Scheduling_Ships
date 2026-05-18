@@ -252,11 +252,32 @@ void led_view_render_phase4(void)
     }
 
     /*
-     * 3. Barreras / interrupción.
-     */
+    * 3. Barreras / puertas.
+    *
+    * Blanco parpadeante = puertas abiertas, operación normal.
+    * Rojo fijo          = puertas cerradas por interrupción.
+    */
+    static int blink_elapsed_ms = 0;
+    static int blink_on = 1;
+
+    blink_elapsed_ms += config_get()->system_tick_ms;
+
+    if (blink_elapsed_ms >= 500) {
+        blink_elapsed_ms = 0;
+        blink_on = !blink_on;
+    }
+
     if (canal_is_interrupted()) {
         led_strip_set_pixel(led_strip, LED_LEFT_BARRIER, 40, 0, 0);
         led_strip_set_pixel(led_strip, LED_RIGHT_BARRIER, 40, 0, 0);
+    } else {
+        if (blink_on) {
+            led_strip_set_pixel(led_strip, LED_LEFT_BARRIER, 40, 40, 40);
+            led_strip_set_pixel(led_strip, LED_RIGHT_BARRIER, 40, 40, 40);
+        } else {
+            led_strip_set_pixel(led_strip, LED_LEFT_BARRIER, 0, 0, 0);
+            led_strip_set_pixel(led_strip, LED_RIGHT_BARRIER, 0, 0, 0);
+        }
     }
 
     /*

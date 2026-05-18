@@ -1,0 +1,3 @@
+# Prueba mixta
+n f p
+N F P
