@@ -1,3 +1,16 @@
+/* ============================================================
+ * Archivo: thread.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Implementa la biblioteca mínima de hilos simulados usados por el scheduler del proyecto.
+ *
+ * Documentación interna:
+ * - Mantener este módulo pequeño, con validaciones defensivas y sin asumir entradas válidas.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "thread.h"
 
 #include "freertos/FreeRTOS.h"

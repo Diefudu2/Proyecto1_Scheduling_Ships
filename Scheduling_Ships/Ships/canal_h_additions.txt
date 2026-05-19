@@ -1,7 +1,0 @@
-/*
- * Agregar estos prototipos en Ships/canal.h,
- * cerca de canal_set_interrupted() / canal_is_interrupted().
- */
-
-int canal_interrupt_activate(void);
-void canal_interrupt_deactivate(void);

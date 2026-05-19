@@ -1,3 +1,17 @@
+/* ============================================================
+ * Archivo: led_view.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Renderiza la tira de LEDs: colas, canal comprimido, barreras, estado de interrupción y dirección de flujo.
+ *
+ * Documentación interna:
+ * - El canal lógico se comprime a 10 LEDs físicos; no se debe dibujar doble ocupación sin indicarlo.
+ * - Las barreras blancas parpadeantes indican abierto; rojo fijo indica interrupción.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "led_view.h"
 #include "config.h"
 #include "ships.h"

@@ -1,6 +1,15 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
+
+/* ============================================================
+ * Archivo: scheduler.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Define la estructura Scheduler y la API para añadir, elegir, despachar y consultar hilos simulados.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include "thread.h"
 #include "ships.h"
 #include "system_types.h"

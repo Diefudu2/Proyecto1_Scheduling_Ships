@@ -1,3 +1,17 @@
+/* ============================================================
+ * Archivo: scheduler.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Implementa la cola READY y los algoritmos FCFS, RR, PRIORITY, SJF, STRN y EDF.
+ *
+ * Documentación interna:
+ * - La cola READY se reconstruye al cambiar algoritmo para mantener orden según la política activa.
+ * - Los apropiativos se coordinan con canal.c; no deben saltarse restricciones físicas del canal.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "scheduler.h"
 #include "config.h"
 #include "canal.h"

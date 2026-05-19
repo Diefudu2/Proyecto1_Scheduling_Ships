@@ -1,3 +1,14 @@
+# ============================================================
+# Archivo: gui.py
+# Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+# Rol: Interfaz gráfica Tkinter de un solo hilo para controlar el firmware, visualizar canal/colas e interrupciones.
+#
+# Documentación interna:
+# - Este archivo pertenece a la herramienta de escritorio del proyecto.
+# - Mantener lectura serial no bloqueante para no congelar la interfaz.
+# - Los comandos enviados deben coincidir con serial_protocol.c.
+# ============================================================
+
 # gui.py
 # GUI rápida de un solo hilo para Scheduling Ships ESP32-C6.
 #
@@ -247,6 +258,7 @@ class SchedulingShipsGUI:
 
     # =========================================================
     # Tick: un solo hilo
+    # Este método se ejecuta periódicamente y actualiza la GUI, lectura serial y polling automático.
     # =========================================================
 
     def _tick(self):
@@ -274,12 +286,14 @@ class SchedulingShipsGUI:
         self.root.after(tick_ms, self._tick)
 
     def _read_serial_available(self):
+        # Lee todas las líneas recibidas del puerto serial y las procesa.
         for line in self.client.poll_lines():
             if not line.startswith("SNAPSHOT "):
                 self.log(line)
             self.parse_line(line)
 
     def _send_auto_poll_command(self):
+        # Envía comandos periódicos según el modo SNAPSHOT o el modo legado.
         if self.fast_snapshot_mode.get():
             try:
                 self.client.send("SNAPSHOT")
@@ -307,11 +321,13 @@ class SchedulingShipsGUI:
     # =========================================================
 
     def refresh_ports(self):
+        # Actualiza la lista de puertos seriales disponibles en la interfaz.
         ports = SerialClient.list_ports()
         self.port_combo["values"] = ports
         self.log(f"Puertos detectados: {ports}")
 
     def toggle_connection(self):
+        # Conecta o desconecta el cliente serial según el estado actual.
         if self.connected:
             self.client.disconnect()
             self.connected = False
@@ -337,6 +353,7 @@ class SchedulingShipsGUI:
             self.log(f"ERR CONNECT {exc}")
 
     def send_command(self, command):
+        # Envía un comando al ESP32 y solicita refresco si es necesario.
         try:
             if not self.connected:
                 self.log("ERR GUI: no conectado")
@@ -376,6 +393,7 @@ class SchedulingShipsGUI:
     # =========================================================
 
     def apply_config(self):
+        # Construye y envía todos los comandos de configuración al firmware.
         commands = [
             f"CONFIG SCHED={self.sched_var.get()}",
             f"CONFIG FLOW={self.flow_var.get()}",
@@ -485,6 +503,7 @@ class SchedulingShipsGUI:
     # =========================================================
 
     def parse_line(self, line):
+        # Interpreta las líneas entrantes del firmware y actualiza el estado interno.
         if line.startswith("SNAPSHOT "):
             self._parse_snapshot(line)
             return
@@ -654,6 +673,7 @@ class SchedulingShipsGUI:
     # =========================================================
 
     def draw_visual(self):
+        # Dibuja la vista lógica del canal, barcos y colas en el área de visualización.
         self.canvas.delete("all")
 
         width = max(self.canvas.winfo_width(), 900)
@@ -881,6 +901,7 @@ class SchedulingShipsGUI:
 
 
 def main():
+    # Inicia la aplicación gráfica y arranca el bucle principal de Tkinter.
     root = tk.Tk()
     SchedulingShipsGUI(root)
     root.mainloop()

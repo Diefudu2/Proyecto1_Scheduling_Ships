@@ -1,6 +1,15 @@
 #ifndef SIM_SEMAPHORE_H
 #define SIM_SEMAPHORE_H
 
+
+/* ============================================================
+ * Archivo: semaphore.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Define SimSemaphore y las operaciones wait/signal/value.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include "thread.h"
 
 typedef struct SimSemaphore {

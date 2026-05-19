@@ -1,3 +1,17 @@
+/* ============================================================
+ * Archivo: interrupt_control.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Gestiona interrupciones por fotoresistencia y por GUI/serial, aplicando histéresis, cooldown y activación del cierre del canal.
+ *
+ * Documentación interna:
+ * - La lógica del sensor replica el prototipo funcional: SENSOR:1 al cruzar umbral de sombra y SENSOR:0 al recuperar luz.
+ * - Los botones manuales de interrupción están en GUI/serial, no en un GPIO físico.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "interrupt_control.h"
 
 #include "config.h"

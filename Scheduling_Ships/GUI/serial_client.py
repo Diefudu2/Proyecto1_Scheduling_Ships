@@ -1,3 +1,14 @@
+# ============================================================
+# Archivo: serial_client.py
+# Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+# Rol: Cliente serial no bloqueante usado por la GUI para comunicarse con el ESP32-C6.
+#
+# Documentación interna:
+# - Este archivo pertenece a la herramienta de escritorio del proyecto.
+# - Mantener lectura serial no bloqueante para no congelar la interfaz.
+# - Los comandos enviados deben coincidir con serial_protocol.c.
+# ============================================================
+
 # serial_client.py
 # Cliente serial SIN hilos para Scheduling Ships ESP32-C6.
 # Lectura no bloqueante desde tkinter.after().
@@ -13,6 +24,7 @@ except ImportError as exc:
 
 class SerialClient:
     def __init__(self, port="/dev/ttyACM0", baud=115200):
+        # Inicializa el cliente serial con puerto y baudios por defecto.
         self.port = port
         self.baud = baud
         self.ser = None
@@ -20,12 +32,14 @@ class SerialClient:
 
     @staticmethod
     def list_ports():
+        # Lista los puertos seriales disponibles en el sistema.
         return [p.device for p in serial.tools.list_ports.comports()]
 
     def is_connected(self):
         return self.ser is not None and self.ser.is_open
 
     def connect(self, port=None, baud=None):
+        # Abre el puerto serial y prepara el buffer de recepción no bloqueante.
         if port:
             self.port = port
         if baud:
@@ -40,6 +54,7 @@ class SerialClient:
         return True
 
     def disconnect(self):
+        # Cierra el puerto serial y limpia el buffer.
         if self.ser:
             try:
                 self.ser.close()
@@ -48,6 +63,7 @@ class SerialClient:
                 self._rx_buffer = b""
 
     def send(self, command):
+        # Envía un comando terminando en nueva línea al dispositivo serial.
         if not self.is_connected():
             raise RuntimeError("Serial no conectado")
 
@@ -56,6 +72,7 @@ class SerialClient:
             self.ser.write((command + "\n").encode("utf-8"))
 
     def poll_lines(self, max_bytes=2048):
+        # Lee datos disponibles del puerto serial y devuelve líneas completas.
         lines = []
 
         if not self.is_connected():

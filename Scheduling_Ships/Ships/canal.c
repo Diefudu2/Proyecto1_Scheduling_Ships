@@ -1,3 +1,18 @@
+/* ============================================================
+ * Archivo: canal.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Implementa el canal lógico, control de entrada/salida, movimiento, interrupciones, restauración post-interrupción y políticas de flujo TICO/LETRERO/EQUIDAD.
+ *
+ * Documentación interna:
+ * - La política de flujo se evalúa antes del scheduler para decidir qué sentido puede entrar.
+ * - La interrupción no debe considerarse un vaciado normal del canal; por eso conserva sentido y saved_position.
+ * - Los algoritmos apropiativos solo deben tomar recursos cuando existe disputa real por posición o segmento físico.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "canal.h"
 #include "scheduler.h"
 

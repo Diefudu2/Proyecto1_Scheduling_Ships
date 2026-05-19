@@ -1,3 +1,16 @@
+/* ============================================================
+ * Archivo: main.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Contiene la tarea principal FreeRTOS y coordina inicialización, polling serial, interrupciones, scheduler, canal y LEDs.
+ *
+ * Documentación interna:
+ * - Mantener este módulo pequeño, con validaciones defensivas y sin asumir entradas válidas.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include <stdio.h>
 
 #include "freertos/FreeRTOS.h"

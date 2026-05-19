@@ -1,6 +1,15 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+
+/* ============================================================
+ * Archivo: config.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Define límites de compilación, valores por defecto y la estructura SystemConfig compartida por todos los módulos.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include "system_types.h"
 #include <stdint.h>
 

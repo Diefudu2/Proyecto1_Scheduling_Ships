@@ -1,6 +1,15 @@
 #ifndef CANAL_H
 #define CANAL_H
 
+
+/* ============================================================
+ * Archivo: canal.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Expone la estructura del canal, direcciones lógicas y API pública para entrada, avance, interrupción y diagnóstico del canal.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include "config.h"
 #include "ships.h"
 #include "semaphore.h"

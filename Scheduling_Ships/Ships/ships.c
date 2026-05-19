@@ -1,3 +1,16 @@
+/* ============================================================
+ * Archivo: ships.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Gestiona creación, atributos por tipo, estados y sincronización de barcos con SimThread.
+ *
+ * Documentación interna:
+ * - Mantener este módulo pequeño, con validaciones defensivas y sin asumir entradas válidas.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "ships.h"
 #include "scheduler.h"
 
@@ -7,6 +20,7 @@ static Ship g_ships[MAX_SHIPS];
 static int g_ship_count = 0;
 static int g_next_ship_id = 1;
 
+// Inicializa el estado global de los barcos y prepara la lista para nuevas creaciones.
 void ships_init(void)
 {
     memset(g_ships, 0, sizeof(g_ships));
@@ -14,6 +28,7 @@ void ships_init(void)
     g_next_ship_id = 1;
 }
 
+// Crea un nuevo barco con tipo y dirección, asigna hilo y lo pone en cola ready.
 Ship *ship_create(ShipType type, ShipDir dir)
 {
     if (g_ship_count >= CONFIG_MAX_SHIPS) {
@@ -67,10 +82,12 @@ void ship_thread_step(void *arg)
         return;
     }
 
+    // Marca el barco como en ejecución y sincroniza el tiempo restante.
     s->state = SHIP_RUNNING;
     s->remaining_ms = s->thread->remaining_ms;
 }
 
+// Devuelve nombre amigable del tipo de barco.
 const char *ship_type_name(ShipType type)
 {
     switch (type) {
@@ -90,6 +107,7 @@ const char *ship_dir_name(ShipDir dir)
     }
 }
 
+// Devuelve el nombre legible del estado del barco.
 const char *ship_state_name(ShipState state)
 {
     switch (state) {
@@ -104,6 +122,7 @@ const char *ship_state_name(ShipState state)
     }
 }
 
+// Cuenta todos los barcos en la dirección indicada que todavía no han terminado.
 int ships_count_by_dir(ShipDir dir)
 {
     int count = 0;
@@ -117,6 +136,7 @@ int ships_count_by_dir(ShipDir dir)
     return count;
 }
 
+// Cuenta los barcos que están listos para ejecutarse en la dirección indicada.
 int ships_count_ready_by_dir(ShipDir dir)
 {
     int count = 0;
@@ -146,6 +166,7 @@ int ship_default_speed(ShipType type)
     }
 }
 
+// Devuelve la prioridad por defecto según el tipo de barco.
 int ship_default_priority(ShipType type)
 {
     switch (type) {
@@ -156,6 +177,7 @@ int ship_default_priority(ShipType type)
     }
 }
 
+// Devuelve el tiempo de ráfaga por defecto según el tipo de barco.
 int ship_default_burst_ms(ShipType type)
 {
     switch (type) {
@@ -166,6 +188,7 @@ int ship_default_burst_ms(ShipType type)
     }
 }
 
+// Devuelve el plazo por defecto según el tipo de barco.
 int ship_default_deadline_ms(ShipType type)
 {
     switch (type) {
@@ -176,6 +199,7 @@ int ship_default_deadline_ms(ShipType type)
     }
 }
 
+// Acceso a la tabla interna de barcos para lectura/sincronización.
 Ship *ships_get_all(void)
 {
     return g_ships;
@@ -186,6 +210,7 @@ int ships_get_count(void)
     return g_ship_count;
 }
 
+// Parsea una cadena de texto y devuelve el tipo de barco correspondiente.
 int ship_parse_type(const char *text, ShipType *out)
 {
     if (!text || !out) {
@@ -212,6 +237,7 @@ int ship_parse_type(const char *text, ShipType *out)
     return 0;
 }
 
+// Traduce la dirección de texto a un valor interno de dirección de barco.
 int ship_parse_dir(const char *text, ShipDir *out)
 {
     if (!text || !out) {
@@ -231,6 +257,7 @@ int ship_parse_dir(const char *text, ShipDir *out)
     return 0;
 }
 
+// Sincroniza los estados internos de los barcos con el estado actual de sus hilos.
 void ships_sync_states_from_threads(void)
 {
     for (int i = 0; i < g_ship_count; i++) {

@@ -1,5 +1,14 @@
 #ifndef THREAD_H
 #define THREAD_H
+
+/* ============================================================
+ * Archivo: thread.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Define SimThread, estados de hilo y API de la biblioteca de hilos simulados.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include "config.h"
 
 #include <stdint.h>

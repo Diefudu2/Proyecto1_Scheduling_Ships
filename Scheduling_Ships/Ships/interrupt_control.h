@@ -1,6 +1,15 @@
 #ifndef INTERRUPT_CONTROL_H
 #define INTERRUPT_CONTROL_H
 
+
+/* ============================================================
+ * Archivo: interrupt_control.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Declara la API pública del controlador de interrupciones usado por main.c y serial_protocol.c.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include <stddef.h>
 
 /*

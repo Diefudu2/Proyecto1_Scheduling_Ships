@@ -1,5 +1,14 @@
 #ifndef SHIPS_H
 #define SHIPS_H
+
+/* ============================================================
+ * Archivo: ships.h
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Define tipos, estados y estructura Ship.
+ *
+ * Este encabezado contiene la API pública del módulo. Mantener aquí solo
+ * tipos, constantes y prototipos requeridos por otros archivos.
+ * ============================================================ */
 #include "config.h"
 
 #include "thread.h"

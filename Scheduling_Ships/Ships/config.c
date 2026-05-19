@@ -1,3 +1,16 @@
+/* ============================================================
+ * Archivo: config.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Inicializa, valida y actualiza la configuración viva del sistema recibida por serial o por valores por defecto.
+ *
+ * Documentación interna:
+ * - Mantener este módulo pequeño, con validaciones defensivas y sin asumir entradas válidas.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "config.h"
 
 static SystemConfig g_config;

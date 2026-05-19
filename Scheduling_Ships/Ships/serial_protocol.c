@@ -1,3 +1,17 @@
+/* ============================================================
+ * Archivo: serial_protocol.c
+ * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
+ * Rol: Procesa comandos seriales de configuración, control, estado, interrupciones y snapshots para la GUI.
+ *
+ * Documentación interna:
+ * - Cada comando debe responder con una línea corta para que la GUI pueda refrescar sin bloquearse.
+ * - SNAPSHOT es la ruta rápida de refresco visual.
+ *
+ * Convenciones:
+ * - Las funciones públicas se declaran en el .h correspondiente.
+ * - Las funciones static son utilidades internas del archivo.
+ * - Retornos int usan 1=éxito/verdadero y 0=fallo/falso salvo que se indique otra cosa.
+ * ============================================================ */
 #include "serial_protocol.h"
 #include "config.h"
 #include "led_view.h"
