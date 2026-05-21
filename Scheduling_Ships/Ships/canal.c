@@ -3,6 +3,19 @@
  * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
  * Rol: Implementa el canal lógico, control de entrada/salida, movimiento, interrupciones, restauración post-interrupción y políticas de flujo TICO/LETRERO/EQUIDAD.
  *
+ * CAMBIO DE FASE (tareas reales + sincronización real de FreeRTOS):
+ * - El recurso "canal" se protege con UN mutex recursivo real (g_canal_mutex).
+ *   Toda mutación de g_canal (positions[], ship_count, active_dir, flujo,
+ *   interrupción) ocurre dentro de canal_lock()/canal_unlock().
+ * - La capacidad simultánea del canal se modela con UN semáforo contador real
+ *   (g_canal_slots, init = max_ships_in_canal): se toma al entrar y se devuelve
+ *   al terminar / apropiar / evacuar.
+ * - El AVANCE de cada barco lo ejecuta SU PROPIA TAREA real (canal_step_ship),
+ *   pero el dispatcher decide a quién y cuándo conceder ejecución: en
+ *   canal_drive_movement() libera la compuerta de cada barco que cruza, en
+ *   orden frente-primero, y espera el handshake g_step_done. Así no hay rebases
+ *   ni colisiones y NUESTRO scheduler sigue gobernando la ejecución.
+ *
  * Documentación interna:
  * - La política de flujo se evalúa antes del scheduler para decidir qué sentido puede entrar.
  * - La interrupción no debe considerarse un vaciado normal del canal; por eso conserva sentido y saved_position.
@@ -15,6 +28,11 @@
  * ============================================================ */
 #include "canal.h"
 #include "scheduler.h"
+#include "thread.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -24,11 +42,11 @@
  *
  * Canal lógico del sistema.
  * - El largo lógico puede ser mayor que los 10 LEDs físicos.
- * - La colisión se protege por positions[] y semáforos.
+ * - La colisión se protege por positions[] bajo el mutex del canal.
  * - Los barcos avanzan por posiciones lógicas según speed.
  * - No se permite rebase.
  *
- * Reglas corregidas:
+ * Reglas:
  * - Interrupción NO rota flujo. Evacúa y luego restaura sentido/posición.
  * - LETRERO solo cierra si hay demanda del lado contrario.
  * - TICO no implementa flujo adicional: decide scheduler + restricción física.
@@ -36,6 +54,19 @@
  * ========================================================= */
 
 static Canal g_canal;
+
+/* =========================================================
+ * Sincronización REAL del recurso canal (FreeRTOS)
+ * ---------------------------------------------------------
+ *  g_canal_mutex : 1 mutex recursivo. Protege TODA la estructura g_canal.
+ *  g_canal_slots : 1 semáforo contador. Cupos simultáneos = max_ships.
+ * ========================================================= */
+
+static SemaphoreHandle_t g_canal_mutex = NULL;
+static SemaphoreHandle_t g_canal_slots = NULL;
+
+/* Tope de espera del handshake de paso, para nunca colgar el dispatcher. */
+#define CANAL_STEP_TIMEOUT_MS 250
 
 /* =========================================================
  * Prototipos internos
@@ -46,6 +77,7 @@ static int canal_ship_has_finished(Ship *ship);
 static void canal_finish_ship(Ship *ship);
 static int canal_advance_one_position(Ship *ship);
 static void canal_move_ship(Ship *ship);
+static void canal_drive_movement(void);
 
 static CanalDirection ship_dir_to_canal_dir(ShipDir dir);
 static ShipDir canal_dir_to_ship_dir(CanalDirection dir);
@@ -85,6 +117,24 @@ static int g_tico_batch_closed = 0;
 static int g_resume_after_interrupt = 0;
 static int g_resume_pending = 0;
 static CanalDirection g_resume_dir = CANAL_DIR_FREE;
+
+/* =========================================================
+ * Sección crítica del canal
+ * ========================================================= */
+
+void canal_lock(void)
+{
+    if (g_canal_mutex) {
+        xSemaphoreTakeRecursive(g_canal_mutex, portMAX_DELAY);
+    }
+}
+
+void canal_unlock(void)
+{
+    if (g_canal_mutex) {
+        xSemaphoreGiveRecursive(g_canal_mutex);
+    }
+}
 
 /* =========================================================
  * Utilidades básicas
@@ -262,15 +312,20 @@ static void canal_update_flow_when_empty(void)
 {
     SystemConfig *cfg = config_get();
 
+    canal_lock();
+
     if (g_canal.interrupted) {
+        canal_unlock();
         return;
     }
 
     if (g_resume_after_interrupt && g_resume_pending > 0) {
+        canal_unlock();
         return;
     }
 
     if (g_canal.ship_count != 0) {
+        canal_unlock();
         return;
     }
 
@@ -287,6 +342,7 @@ static void canal_update_flow_when_empty(void)
             g_letrero_elapsed_ms = 0;
             g_letrero_counting = 0;
             g_letrero_open = 1;
+            canal_unlock();
             return;
         }
 
@@ -302,6 +358,7 @@ static void canal_update_flow_when_empty(void)
         CanalDirection opposite = canal_opposite_dir(g_equidad_turn_dir);
 
         if (cfg->equidad_w <= 0) {
+            canal_unlock();
             return;
         }
 
@@ -309,6 +366,7 @@ static void canal_update_flow_when_empty(void)
             canal_has_waiting_in_dir(opposite)) {
             g_equidad_turn_dir = opposite;
             g_equidad_passed_in_turn = 0;
+            canal_unlock();
             return;
         }
 
@@ -322,6 +380,8 @@ static void canal_update_flow_when_empty(void)
         /* FLOW_TICO: sin política adicional. No alterna ni cierra lotes. */
         g_tico_batch_closed = 0;
     }
+
+    canal_unlock();
 }
 
 static int canal_flow_allows_entry(Ship *ship)
@@ -425,9 +485,18 @@ static int canal_flow_allows_entry(Ship *ship)
 
 void canal_init(void)
 {
+    /* Crear el mutex del canal una sola vez; se reutiliza tras RESET. */
+    if (!g_canal_mutex) {
+        g_canal_mutex = xSemaphoreCreateRecursiveMutex();
+    }
+
+    canal_lock();
+
     memset(&g_canal, 0, sizeof(g_canal));
     canal_apply_config();
     canal_reset_flow_state();
+
+    canal_unlock();
 }
 
 int canal_apply_config(void)
@@ -465,10 +534,20 @@ int canal_apply_config(void)
 
     for (int i = 0; i < CONFIG_MAX_CANAL_POSITIONS; i++) {
         g_canal.positions[i] = NULL;
-        sim_sem_init(&g_canal.sem_positions[i], 1);
     }
 
-    sim_sem_init(&g_canal.sem_cpu_slots, g_canal.max_ships);
+    /*
+     * Semáforo contador de cupos del canal (capacidad del "CPU").
+     * Se recrea para reflejar el max_ships actual; solo ocurre con el canal
+     * vacío (ship_count==0), por lo que no hay tomas pendientes que perder.
+     */
+    if (g_canal_slots) {
+        vSemaphoreDelete(g_canal_slots);
+        g_canal_slots = NULL;
+    }
+
+    g_canal_slots = xSemaphoreCreateCounting(g_canal.max_ships, g_canal.max_ships);
+
     canal_reset_flow_state();
 
     return 1;
@@ -484,117 +563,131 @@ int canal_try_enter(Ship *ship)
         return 0;
     }
 
-    if (g_canal.interrupted) {
-        return 0;
-    }
+    int ok = 0;
+    int took_slot = 0;
 
-    if (g_canal.length <= 0 || g_canal.length > CONFIG_MAX_CANAL_POSITIONS) {
-        return 0;
-    }
+    canal_lock();
 
-    if (g_canal.max_ships <= 0 || g_canal.max_ships > g_canal.length) {
-        return 0;
-    }
-
-    if (g_canal.ship_count >= g_canal.max_ships) {
-        return 0;
-    }
-
-    CanalDirection desired_dir = ship_dir_to_canal_dir(ship->dir);
-
-    if (g_canal.active_dir != CANAL_DIR_FREE &&
-        g_canal.active_dir != desired_dir) {
-        return 0;
-    }
-
-    if (!canal_flow_allows_entry(ship)) {
-        return 0;
-    }
-
-    int restoring_from_saved = canal_valid_position(ship->saved_position);
-    int was_restoring_after_interrupt = 0;
-    int entry_pos = restoring_from_saved
-                    ? ship->saved_position
-                    : canal_entry_position_for_ship(ship);
-
-    if (!canal_valid_position(entry_pos)) {
-        return 0;
-    }
-
-    if (g_resume_after_interrupt &&
-        g_resume_pending > 0 &&
-        restoring_from_saved &&
-        desired_dir == g_resume_dir) {
-        was_restoring_after_interrupt = 1;
-    }
-
-    if (g_canal.positions[entry_pos] != NULL) {
-        return 0;
-    }
-
-    int entry_slot = canal_position_to_led_slot(entry_pos);
-
-    if (entry_slot < 0 || entry_slot >= LED_CANAL_COUNT) {
-        return 0;
-    }
-
-    if (canal_visual_slot_has_other_ship(entry_slot, ship)) {
-        return 0;
-    }
-
-    if (!sim_sem_wait(&g_canal.sem_cpu_slots, ship->thread)) {
-        return 0;
-    }
-
-    if (!sim_sem_wait(&g_canal.sem_positions[entry_pos], ship->thread)) {
-        sim_sem_signal(&g_canal.sem_cpu_slots);
-        return 0;
-    }
-
-    g_canal.positions[entry_pos] = ship;
-    g_canal.ship_count++;
-    g_canal.active_dir = desired_dir;
-
-    ship->position = entry_pos;
-    ship->state = SHIP_CROSSING;
-    ship->saved_position = -1;
-    ship->thread->saved_position = -1;
-
-    thread_set_running(ship->thread);
-
-    SystemConfig *cfg = config_get();
-
-    /* Restaurar un barco evacuado no cuenta como barco nuevo del turno. */
-    if (!was_restoring_after_interrupt && !restoring_from_saved) {
-        if (cfg->flow_algo == FLOW_EQUIDAD &&
-            desired_dir == g_equidad_turn_dir) {
-            g_equidad_passed_in_turn++;
-        }
-    }
-
-    if (cfg->flow_algo == FLOW_LETRERO &&
-        desired_dir == g_letrero_dir) {
-        g_letrero_counting = 1;
-    }
-
-    /* TICO no cierra lotes ni alterna uno-y-uno. */
-    g_tico_batch_closed = 0;
-
-    if (was_restoring_after_interrupt) {
-        if (g_resume_pending > 0) {
-            g_resume_pending--;
+    do {
+        if (g_canal.interrupted) {
+            break;
         }
 
-        if (g_resume_pending <= 0) {
-            g_resume_after_interrupt = 0;
-            g_resume_pending = 0;
-            g_resume_dir = CANAL_DIR_FREE;
+        if (g_canal.length <= 0 || g_canal.length > CONFIG_MAX_CANAL_POSITIONS) {
+            break;
         }
+
+        if (g_canal.max_ships <= 0 || g_canal.max_ships > g_canal.length) {
+            break;
+        }
+
+        if (g_canal.ship_count >= g_canal.max_ships) {
+            break;
+        }
+
+        CanalDirection desired_dir = ship_dir_to_canal_dir(ship->dir);
+
+        if (g_canal.active_dir != CANAL_DIR_FREE &&
+            g_canal.active_dir != desired_dir) {
+            break;
+        }
+
+        if (!canal_flow_allows_entry(ship)) {
+            break;
+        }
+
+        int restoring_from_saved = canal_valid_position(ship->saved_position);
+        int was_restoring_after_interrupt = 0;
+        int entry_pos = restoring_from_saved
+                        ? ship->saved_position
+                        : canal_entry_position_for_ship(ship);
+
+        if (!canal_valid_position(entry_pos)) {
+            break;
+        }
+
+        if (g_resume_after_interrupt &&
+            g_resume_pending > 0 &&
+            restoring_from_saved &&
+            desired_dir == g_resume_dir) {
+            was_restoring_after_interrupt = 1;
+        }
+
+        if (g_canal.positions[entry_pos] != NULL) {
+            break;
+        }
+
+        int entry_slot = canal_position_to_led_slot(entry_pos);
+
+        if (entry_slot < 0 || entry_slot >= LED_CANAL_COUNT) {
+            break;
+        }
+
+        if (canal_visual_slot_has_other_ship(entry_slot, ship)) {
+            break;
+        }
+
+        /* Reservar un cupo del canal (no bloqueante). Si está lleno, no entra. */
+        if (!g_canal_slots || xSemaphoreTake(g_canal_slots, 0) != pdTRUE) {
+            break;
+        }
+
+        took_slot = 1;
+
+        g_canal.positions[entry_pos] = ship;
+        g_canal.ship_count++;
+        g_canal.active_dir = desired_dir;
+
+        ship->position = entry_pos;
+        ship->state = SHIP_CROSSING;
+        ship->saved_position = -1;
+        ship->thread->saved_position = -1;
+
+        thread_set_running(ship->thread);
+
+        SystemConfig *cfg = config_get();
+
+        /* Restaurar un barco evacuado no cuenta como barco nuevo del turno. */
+        if (!was_restoring_after_interrupt && !restoring_from_saved) {
+            if (cfg->flow_algo == FLOW_EQUIDAD &&
+                desired_dir == g_equidad_turn_dir) {
+                g_equidad_passed_in_turn++;
+            }
+        }
+
+        if (cfg->flow_algo == FLOW_LETRERO &&
+            desired_dir == g_letrero_dir) {
+            g_letrero_counting = 1;
+        }
+
+        /* TICO no cierra lotes ni alterna uno-y-uno. */
+        g_tico_batch_closed = 0;
+
+        if (was_restoring_after_interrupt) {
+            if (g_resume_pending > 0) {
+                g_resume_pending--;
+            }
+
+            if (g_resume_pending <= 0) {
+                g_resume_after_interrupt = 0;
+                g_resume_pending = 0;
+                g_resume_dir = CANAL_DIR_FREE;
+            }
+        }
+
+        ok = 1;
+    } while (0);
+
+    /* Si algo falló después de reservar el cupo, devolverlo. */
+    if (!ok && took_slot && g_canal_slots) {
+        xSemaphoreGive(g_canal_slots);
     }
 
-    return 1;
+    canal_unlock();
+    return ok;
 }
 
+/* Asume que el llamador ya tiene el mutex del canal tomado. */
 static void canal_finish_ship(Ship *ship)
 {
     if (!ship || !ship->thread) {
@@ -605,10 +698,12 @@ static void canal_finish_ship(Ship *ship)
 
     if (canal_valid_position(pos) && g_canal.positions[pos] == ship) {
         g_canal.positions[pos] = NULL;
-        sim_sem_signal(&g_canal.sem_positions[pos]);
     }
 
-    sim_sem_signal(&g_canal.sem_cpu_slots);
+    /* Liberar el cupo del canal. */
+    if (g_canal_slots) {
+        xSemaphoreGive(g_canal_slots);
+    }
 
     if (g_canal.ship_count > 0) {
         g_canal.ship_count--;
@@ -618,10 +713,8 @@ static void canal_finish_ship(Ship *ship)
     ship->saved_position = -1;
     ship->state = SHIP_DONE;
 
-    if (ship->thread) {
-        ship->thread->saved_position = -1;
-        thread_exit(ship->thread);
-    }
+    ship->thread->saved_position = -1;
+    thread_exit(ship->thread);
 
     canal_update_flow_when_empty();
 }
@@ -634,7 +727,10 @@ int canal_interrupt_activate(void)
 {
     int removed = 0;
 
+    canal_lock();
+
     if (g_canal.interrupted) {
+        canal_unlock();
         return 0;
     }
 
@@ -659,8 +755,11 @@ int canal_interrupt_activate(void)
         ship->thread->saved_position = pos;
 
         g_canal.positions[pos] = NULL;
-        sim_sem_signal(&g_canal.sem_positions[pos]);
-        sim_sem_signal(&g_canal.sem_cpu_slots);
+
+        /* Devolver el cupo del canal del barco evacuado. */
+        if (g_canal_slots) {
+            xSemaphoreGive(g_canal_slots);
+        }
 
         if (g_canal.ship_count > 0) {
             g_canal.ship_count--;
@@ -681,11 +780,14 @@ int canal_interrupt_activate(void)
         g_canal.active_dir = g_resume_dir;
     }
 
+    canal_unlock();
     return removed;
 }
 
 void canal_interrupt_deactivate(void)
 {
+    canal_lock();
+
     g_canal.interrupted = 0;
 
     if (g_resume_after_interrupt &&
@@ -693,6 +795,8 @@ void canal_interrupt_deactivate(void)
         g_resume_dir != CANAL_DIR_FREE) {
         g_canal.active_dir = g_resume_dir;
     }
+
+    canal_unlock();
 }
 
 /* =========================================================
@@ -705,40 +809,51 @@ int canal_preempt_ship(Ship *ship)
         return 0;
     }
 
-    if (ship->state != SHIP_CROSSING) {
-        return 0;
-    }
+    int ok = 0;
 
-    int pos = ship->position;
+    canal_lock();
 
-    if (!canal_valid_position(pos)) {
-        return 0;
-    }
+    do {
+        if (ship->state != SHIP_CROSSING) {
+            break;
+        }
 
-    if (g_canal.positions[pos] != ship) {
-        return 0;
-    }
+        int pos = ship->position;
 
-    ship->saved_position = pos;
-    ship->thread->saved_position = pos;
+        if (!canal_valid_position(pos)) {
+            break;
+        }
 
-    g_canal.positions[pos] = NULL;
-    sim_sem_signal(&g_canal.sem_positions[pos]);
-    sim_sem_signal(&g_canal.sem_cpu_slots);
+        if (g_canal.positions[pos] != ship) {
+            break;
+        }
 
-    if (g_canal.ship_count > 0) {
-        g_canal.ship_count--;
-    }
+        ship->saved_position = pos;
+        ship->thread->saved_position = pos;
 
-    ship->position = -1;
-    ship->state = SHIP_READY;
+        g_canal.positions[pos] = NULL;
 
-    thread_preempt(ship->thread);
-    scheduler_add_ready(ship->thread);
+        if (g_canal_slots) {
+            xSemaphoreGive(g_canal_slots);
+        }
 
-    canal_update_flow_when_empty();
+        if (g_canal.ship_count > 0) {
+            g_canal.ship_count--;
+        }
 
-    return 1;
+        ship->position = -1;
+        ship->state = SHIP_READY;
+
+        thread_preempt(ship->thread);
+        scheduler_add_ready(ship->thread);
+
+        canal_update_flow_when_empty();
+
+        ok = 1;
+    } while (0);
+
+    canal_unlock();
+    return ok;
 }
 
 int canal_has_crossing_ships(void)
@@ -770,6 +885,7 @@ static int canal_preemptive_ship_beats(SchedAlgo algo, Ship *behind, Ship *front
     }
 }
 
+/* Asume que el llamador ya tiene el mutex del canal (corre dentro del avance). */
 static int canal_try_preempt_blocker_for_ship(Ship *ship, Ship *blocker)
 {
     if (!ship || !blocker || blocker == ship) {
@@ -790,6 +906,8 @@ static int canal_try_preempt_blocker_for_ship(Ship *ship, Ship *blocker)
      * Apropiación localizada:
      * solo se ejecuta cuando ship realmente está disputando el recurso
      * ocupado por blocker. No se apropia desde READY de forma global.
+     * canal_preempt_ship usa el mutex recursivo, por lo que es seguro
+     * llamarlo aunque el avance ya tenga el lock.
      */
     if (canal_preempt_ship(blocker)) {
         scheduler_note_preemption();
@@ -806,68 +924,79 @@ int canal_preempt_blocker_for_edf(void)
 
 int canal_preempt_blocker_for_algo(SchedAlgo algo)
 {
-    if (g_canal.ship_count <= 1) {
-        return 0;
-    }
+    int result = 0;
 
-    if (algo != SCHED_RR && algo != SCHED_STRN && algo != SCHED_EDF) {
-        return 0;
-    }
+    canal_lock();
 
-    if (g_canal.active_dir == CANAL_DIR_LEFT_TO_RIGHT) {
-        for (int pos = 0; pos < g_canal.length - 1; pos++) {
-            Ship *behind = g_canal.positions[pos];
+    do {
+        if (g_canal.ship_count <= 1) {
+            break;
+        }
 
-            if (!behind || !behind->thread) {
-                continue;
-            }
+        if (algo != SCHED_RR && algo != SCHED_STRN && algo != SCHED_EDF) {
+            break;
+        }
 
-            for (int front_pos = pos + 1; front_pos < g_canal.length; front_pos++) {
-                Ship *front = g_canal.positions[front_pos];
+        if (g_canal.active_dir == CANAL_DIR_LEFT_TO_RIGHT) {
+            for (int pos = 0; pos < g_canal.length - 1; pos++) {
+                Ship *behind = g_canal.positions[pos];
 
-                if (!front || !front->thread) {
+                if (!behind || !behind->thread) {
                     continue;
                 }
 
-                if (canal_preemptive_ship_beats(algo, behind, front)) {
-                    return canal_preempt_ship(front);
-                }
+                for (int front_pos = pos + 1; front_pos < g_canal.length; front_pos++) {
+                    Ship *front = g_canal.positions[front_pos];
 
-                break;
+                    if (!front || !front->thread) {
+                        continue;
+                    }
+
+                    if (canal_preemptive_ship_beats(algo, behind, front)) {
+                        result = canal_preempt_ship(front);
+                        goto done;
+                    }
+
+                    break;
+                }
             }
         }
-    }
-    else if (g_canal.active_dir == CANAL_DIR_RIGHT_TO_LEFT) {
-        for (int pos = g_canal.length - 1; pos > 0; pos--) {
-            Ship *behind = g_canal.positions[pos];
+        else if (g_canal.active_dir == CANAL_DIR_RIGHT_TO_LEFT) {
+            for (int pos = g_canal.length - 1; pos > 0; pos--) {
+                Ship *behind = g_canal.positions[pos];
 
-            if (!behind || !behind->thread) {
-                continue;
-            }
-
-            for (int front_pos = pos - 1; front_pos >= 0; front_pos--) {
-                Ship *front = g_canal.positions[front_pos];
-
-                if (!front || !front->thread) {
+                if (!behind || !behind->thread) {
                     continue;
                 }
 
-                if (canal_preemptive_ship_beats(algo, behind, front)) {
-                    return canal_preempt_ship(front);
-                }
+                for (int front_pos = pos - 1; front_pos >= 0; front_pos--) {
+                    Ship *front = g_canal.positions[front_pos];
 
-                break;
+                    if (!front || !front->thread) {
+                        continue;
+                    }
+
+                    if (canal_preemptive_ship_beats(algo, behind, front)) {
+                        result = canal_preempt_ship(front);
+                        goto done;
+                    }
+
+                    break;
+                }
             }
         }
-    }
+    } while (0);
 
-    return 0;
+done:
+    canal_unlock();
+    return result;
 }
 
 /* =========================================================
  * Movimiento
  * ========================================================= */
 
+/* Asume que el llamador ya tiene el mutex del canal tomado. */
 static int canal_advance_one_position(Ship *ship)
 {
     if (!ship || !ship->thread) {
@@ -929,13 +1058,14 @@ static int canal_advance_one_position(Ship *ship)
         }
     }
 
-    if (!sim_sem_wait(&g_canal.sem_positions[next_pos], ship->thread)) {
-        return 0;
-    }
-
+    /*
+     * Movimiento de la franja: como todo este avance ocurre bajo el mutex del
+     * canal y el dispatcher serializa los pasos (espera g_step_done entre
+     * barcos), el propio arreglo positions[] es la fuente de verdad y basta
+     * para impedir colisiones y rebases. Ya no se requieren semáforos por
+     * posición.
+     */
     g_canal.positions[current_pos] = NULL;
-    sim_sem_signal(&g_canal.sem_positions[current_pos]);
-
     g_canal.positions[next_pos] = ship;
     ship->position = next_pos;
 
@@ -947,6 +1077,7 @@ static int canal_advance_one_position(Ship *ship)
     return 1;
 }
 
+/* Asume que el llamador ya tiene el mutex del canal tomado. */
 static void canal_move_ship(Ship *ship)
 {
     if (!ship || !ship->thread) {
@@ -1007,6 +1138,82 @@ static void canal_move_ship(Ship *ship)
     ship->thread->remaining_ms = ship->remaining_ms;
 }
 
+/*
+ * canal_step_ship:
+ * Paso de avance ejecutado por la TAREA REAL del barco. Toma el mutex del
+ * canal, avanza el barco una franja (canal_move_ship) y libera el mutex.
+ */
+void canal_step_ship(Ship *ship)
+{
+    if (!ship) {
+        return;
+    }
+
+    canal_lock();
+
+    if (!g_canal.interrupted && ship->state == SHIP_CROSSING) {
+        canal_move_ship(ship);
+    }
+
+    canal_unlock();
+}
+
+/*
+ * canal_drive_movement:
+ * Lo ejecuta la tarea del NÚCLEO. Toma una "foto" de los barcos que cruzan en
+ * orden frente-primero y, para cada uno, concede su compuerta (thread_grant_run)
+ * y espera el handshake g_step_done. Esto serializa los avances de forma
+ * determinista (sin rebases) aunque el trabajo lo haga la tarea real del barco.
+ */
+static void canal_drive_movement(void)
+{
+    Ship *order[CONFIG_MAX_CANAL_POSITIONS];
+    int n = 0;
+
+    canal_lock();
+
+    if (g_canal.active_dir == CANAL_DIR_LEFT_TO_RIGHT) {
+        for (int pos = g_canal.length - 1; pos >= 0; pos--) {
+            Ship *s = g_canal.positions[pos];
+            if (s && s->state == SHIP_CROSSING && s->thread) {
+                order[n++] = s;
+            }
+        }
+    } else if (g_canal.active_dir == CANAL_DIR_RIGHT_TO_LEFT) {
+        for (int pos = 0; pos < g_canal.length; pos++) {
+            Ship *s = g_canal.positions[pos];
+            if (s && s->state == SHIP_CROSSING && s->thread) {
+                order[n++] = s;
+            }
+        }
+    }
+
+    canal_unlock();
+
+    SemaphoreHandle_t step_done = thread_step_done_handle();
+
+    for (int i = 0; i < n; i++) {
+        Ship *s = order[i];
+
+        if (!s || !s->thread) {
+            continue;
+        }
+
+        /* Drenar cualquier token de paso rezagado antes de conceder. */
+        if (step_done) {
+            xSemaphoreTake(step_done, 0);
+        }
+
+        /* Conceder ejecución a la tarea real del barco. */
+        thread_grant_run(s->thread);
+
+        /* Esperar a que termine su paso (acotado, nunca cuelga). */
+        if (step_done) {
+            xSemaphoreTake(step_done, pdMS_TO_TICKS(CANAL_STEP_TIMEOUT_MS));
+        }
+    }
+}
+
 void canal_tick(void)
 {
     static int elapsed_ms = 0;
@@ -1052,21 +1259,11 @@ void canal_tick(void)
         return;
     }
 
-    if (g_canal.active_dir == CANAL_DIR_LEFT_TO_RIGHT) {
-        for (int pos = g_canal.length - 1; pos >= 0; pos--) {
-            Ship *ship = g_canal.positions[pos];
-            if (ship) {
-                canal_move_ship(ship);
-            }
-        }
-    } else if (g_canal.active_dir == CANAL_DIR_RIGHT_TO_LEFT) {
-        for (int pos = 0; pos < g_canal.length; pos++) {
-            Ship *ship = g_canal.positions[pos];
-            if (ship) {
-                canal_move_ship(ship);
-            }
-        }
-    }
+    /*
+     * Mover los barcos del canal: el avance real lo ejecuta la tarea de cada
+     * barco; aquí solo concedemos su compuerta en orden frente-primero.
+     */
+    canal_drive_movement();
 
     canal_update_flow_when_empty();
 }

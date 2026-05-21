@@ -7,12 +7,18 @@
  * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
  * Rol: Expone la estructura del canal, direcciones lógicas y API pública para entrada, avance, interrupción y diagnóstico del canal.
  *
+ * CAMBIO DE FASE (tareas reales + sincronización real):
+ * - Se eliminaron los SimSemaphore simulados (sem_cpu_slots y sem_positions[]).
+ * - La protección del recurso "canal" ahora usa objetos REALES de FreeRTOS
+ *   (mutex recursivo + semáforo contador), declarados como estáticos en canal.c.
+ * - canal_lock()/canal_unlock() exponen la sección crítica del canal.
+ * - canal_step_ship() es el paso de avance que ejecuta la TAREA REAL del barco.
+ *
  * Este encabezado contiene la API pública del módulo. Mantener aquí solo
  * tipos, constantes y prototipos requeridos por otros archivos.
  * ============================================================ */
 #include "config.h"
 #include "ships.h"
-#include "semaphore.h"
 
 #include <stddef.h>
 
@@ -32,16 +38,25 @@ typedef struct {
 
     int ship_count;
     int interrupted;
-
-    SimSemaphore sem_cpu_slots;
-    SimSemaphore sem_positions[CONFIG_MAX_CANAL_POSITIONS];
 } Canal;
 
 void canal_init(void);
 int canal_apply_config(void);
 
+/* Sección crítica del recurso "canal" (mutex recursivo real de FreeRTOS). */
+void canal_lock(void);
+void canal_unlock(void);
+
 int canal_try_enter(Ship *ship);
 void canal_tick(void);
+
+/*
+ * canal_step_ship:
+ * Paso de avance ejecutado por la TAREA REAL del barco cuando el scheduler le
+ * concede ejecución. Toma el mutex del canal, avanza el barco según su speed y
+ * libera el mutex. No asume que el llamador ya tenga el lock.
+ */
+void canal_step_ship(Ship *ship);
 
 int canal_preempt_ship(Ship *ship);
 int canal_preempt_blocker_for_edf(void);

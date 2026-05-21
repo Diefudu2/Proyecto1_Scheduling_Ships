@@ -5,7 +5,6 @@ idf_component_register(
         "serial_protocol.c"
         "led_view.c"
         "thread.c"
-        "semaphore.c"
         "scheduler.c"
         "ships.c"
         "canal.c"

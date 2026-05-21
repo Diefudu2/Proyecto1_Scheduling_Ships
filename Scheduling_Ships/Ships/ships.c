@@ -3,6 +3,15 @@
  * Proyecto: Scheduling Ships ESP32-C6 / FreeRTOS
  * Rol: Gestiona creación, atributos por tipo, estados y sincronización de barcos con SimThread.
  *
+ * CAMBIO DE FASE (tareas reales):
+ * - ship_create() crea el SimThread, y thread_create() (en thread.c) lanza la
+ *   TAREA REAL de FreeRTOS asociada. La tarea queda bloqueada en su compuerta
+ *   hasta que el scheduler la despache.
+ * - ship_thread_step() es el "paso de trabajo" que ejecuta la tarea real del
+ *   barco cada vez que el scheduler le concede ejecución: delega en
+ *   canal_step_ship(), que mueve el barco UNA franja dentro del canal de forma
+ *   protegida por el mutex del canal.
+ *
  * Documentación interna:
  * - Mantener este módulo pequeño, con validaciones defensivas y sin asumir entradas válidas.
  *
@@ -13,6 +22,7 @@
  * ============================================================ */
 #include "ships.h"
 #include "scheduler.h"
+#include "canal.h"
 
 #include <string.h>
 
@@ -28,7 +38,7 @@ void ships_init(void)
     g_next_ship_id = 1;
 }
 
-// Crea un nuevo barco con tipo y dirección, asigna hilo y lo pone en cola ready.
+// Crea un nuevo barco con tipo y dirección, asigna hilo (tarea real) y lo encola en ready.
 Ship *ship_create(ShipType type, ShipDir dir)
 {
     if (g_ship_count >= CONFIG_MAX_SHIPS) {
@@ -56,6 +66,13 @@ Ship *ship_create(ShipType type, ShipDir dir)
     s->remaining_ms = s->burst_ms;
     s->deadline_ms = ship_default_deadline_ms(type);
 
+    /*
+     * thread_create() ahora:
+     *  - reserva el SimThread,
+     *  - crea su compuerta (run_gate),
+     *  - lanza la TAREA REAL de FreeRTOS (xTaskCreate) que correrá
+     *    ship_thread_step() cuando el scheduler la despache.
+     */
     s->thread = thread_create(
         ship_thread_step,
         s,
@@ -74,6 +91,12 @@ Ship *ship_create(ShipType type, ShipDir dir)
     return s;
 }
 
+/*
+ * ship_thread_step:
+ * Paso de trabajo ejecutado por la TAREA REAL del barco cuando el scheduler
+ * le concede la compuerta. Avanza el barco una franja dentro del canal.
+ * La exclusión mutua sobre el recurso "canal" la garantiza canal_step_ship().
+ */
 void ship_thread_step(void *arg)
 {
     Ship *s = (Ship *)arg;
@@ -82,9 +105,7 @@ void ship_thread_step(void *arg)
         return;
     }
 
-    // Marca el barco como en ejecución y sincroniza el tiempo restante.
-    s->state = SHIP_RUNNING;
-    s->remaining_ms = s->thread->remaining_ms;
+    canal_step_ship(s);
 }
 
 // Devuelve nombre amigable del tipo de barco.
@@ -260,6 +281,13 @@ int ship_parse_dir(const char *text, ShipDir *out)
 // Sincroniza los estados internos de los barcos con el estado actual de sus hilos.
 void ships_sync_states_from_threads(void)
 {
+    /*
+     * Lectura consistente bajo el mutex del canal: las tareas de barco pueden
+     * mutar position/state dentro de su paso de avance, y este sync corre en
+     * la tarea del núcleo. Tomar el mutex evita leer estados a medio camino.
+     */
+    canal_lock();
+
     for (int i = 0; i < g_ship_count; i++) {
         Ship *s = &g_ships[i];
 
@@ -302,4 +330,6 @@ void ships_sync_states_from_threads(void)
                 break;
         }
     }
+
+    canal_unlock();
 }
