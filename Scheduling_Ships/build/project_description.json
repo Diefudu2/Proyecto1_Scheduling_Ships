@@ -1,7 +1,7 @@
 {
     "version":            "1.3",
     "project_name":       "SchedulingShips",
-    "project_version":    "a63f8c6-dirty",
+    "project_version":    "826aeec-dirty",
     "project_path":       "/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships",
     "idf_path":           "/home/andre/esp/esp-idf",
     "build_dir":          "/home/andre/Desktop/Proyecto1_Scheduling_Ships/Scheduling_Ships/build",

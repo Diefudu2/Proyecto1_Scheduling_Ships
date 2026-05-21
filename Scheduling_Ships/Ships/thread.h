@@ -8,9 +8,11 @@
  *
  * CAMBIO DE FASE (tareas reales):
  * - Cada SimThread ahora envuelve una TAREA REAL de FreeRTOS (xTaskCreate).
- * - La tarea NO corre libre: se bloquea en un semáforo de compuerta (run_gate)
- *   hasta que NUESTRO scheduler le concede ejecución (thread_grant_run).
- *   Así los barcos son procesos reales, pero seguimos calendarizándolos.
+ * - La tarea NO corre libre: se bloquea esperando una NOTIFICACIÓN DE TAREA
+ *   (mecanismo incorporado en cada TaskHandle_t de FreeRTOS) hasta que NUESTRO
+ *   scheduler le concede ejecución (thread_grant_run). No se usa un semáforo
+ *   por barco: la notificación viene dentro de la propia tarea, así los
+ *   semáforos quedan solo para proteger recursos (canal y posiciones).
  *
  * Este encabezado contiene la API pública del módulo. Mantener aquí solo
  * tipos, constantes y prototipos requeridos por otros archivos.
@@ -56,8 +58,9 @@ typedef struct SimThread {
     uint32_t finish_tick;
 
     /* ---- Soporte de tarea real de FreeRTOS ---- */
-    TaskHandle_t    task;       /* tarea real asociada a este hilo */
-    SemaphoreHandle_t run_gate; /* compuerta: el scheduler concede ejecución */
+    TaskHandle_t    task;       /* tarea real asociada a este hilo. La
+                                 * concesión de ejecución usa la notificación
+                                 * de tarea incorporada (no un semáforo). */
 
     struct SimThread *next;
 } SimThread;
@@ -79,9 +82,10 @@ void thread_exit(SimThread *t);
 
 /*
  * thread_grant_run:
- * Libera la compuerta run_gate del hilo indicado. Es el mecanismo con el que
- * el scheduler/dispatcher concede UN paso de ejecución a la tarea real del
- * barco. Sin esta concesión la tarea permanece bloqueada.
+ * Concede UN paso de ejecución a la tarea real del barco enviándole una
+ * notificación (xTaskNotifyGive). Es el mecanismo con el que el
+ * scheduler/dispatcher despierta a UNA tarea concreta. Sin esta concesión la
+ * tarea permanece bloqueada en ulTaskNotifyTake.
  */
 void thread_grant_run(SimThread *t);
 

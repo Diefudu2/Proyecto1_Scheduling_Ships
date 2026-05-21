@@ -8,9 +8,11 @@
  * Rol: Expone la estructura del canal, direcciones lógicas y API pública para entrada, avance, interrupción y diagnóstico del canal.
  *
  * CAMBIO DE FASE (tareas reales + sincronización real):
- * - Se eliminaron los SimSemaphore simulados (sem_cpu_slots y sem_positions[]).
- * - La protección del recurso "canal" ahora usa objetos REALES de FreeRTOS
- *   (mutex recursivo + semáforo contador), declarados como estáticos en canal.c.
+ * - Los SimSemaphore simulados se reemplazaron por objetos REALES de FreeRTOS.
+ * - La protección del recurso "canal" usa un mutex recursivo (estructura) + un
+ *   semáforo contador (cupos simultáneos) + 1 semáforo binario POR POSICIÓN
+ *   lógica del canal (cada franja es un recurso), todos declarados como
+ *   estáticos en canal.c.
  * - canal_lock()/canal_unlock() exponen la sección crítica del canal.
  * - canal_step_ship() es el paso de avance que ejecuta la TAREA REAL del barco.
  *

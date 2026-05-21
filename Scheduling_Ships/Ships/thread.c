@@ -4,20 +4,24 @@
  * Rol: Biblioteca de hilos sobre TAREAS REALES de FreeRTOS.
  *
  * MODELO (tareas reales calendarizadas por nosotros):
- * - thread_create() reserva un SimThread, crea su semáforo de compuerta
- *   (run_gate, binario, inicia "tomado") y lanza una TAREA REAL con
+ * - thread_create() reserva un SimThread y lanza una TAREA REAL con
  *   xTaskCreate() cuyo cuerpo es thread_trampoline().
  * - thread_trampoline() es un bucle que:
- *      1) se BLOQUEA en run_gate hasta que el scheduler concede ejecución;
+ *      1) se BLOQUEA esperando una NOTIFICACIÓN de tarea hasta que el scheduler
+ *         concede ejecución (mecanismo incorporado en la propia tarea);
  *      2) ejecuta UN paso de trabajo del barco (entry_step), que avanza el
  *         barco dentro del canal en el contexto de SU PROPIA tarea;
  *      3) avisa al dispatcher con g_step_done (handshake determinista).
  * - Así los barcos son procesos reales, pero el orden y el momento en que
  *   corren los sigue decidiendo nuestro scheduler (no FreeRTOS).
  *
- * SINCRONIZACIÓN (semáforos reales creados aquí):
- * - run_gate: 1 binario POR HILO/BARCO  -> concesión de ejecución.
- * - g_step_done: 1 binario GLOBAL       -> fin-de-paso barco -> dispatcher.
+ * SINCRONIZACIÓN:
+ * - Concesión de ejecución: NOTIFICACIÓN de tarea (xTaskNotifyGive /
+ *   ulTaskNotifyTake). NO se crea un semáforo por barco; cada tarea ya trae
+ *   su notificación incorporada, así no se abusa de semáforos cuando hay N
+ *   barcos.
+ * - g_step_done: 1 semáforo binario GLOBAL -> fin-de-paso barco -> dispatcher
+ *   (no escala con la cantidad de barcos).
  *
  * Convenciones:
  * - Las funciones públicas se declaran en el .h correspondiente.
@@ -73,13 +77,13 @@ static void thread_trampoline(void *arg)
     }
 
     for (;;) {
-        /* Esperar a que el scheduler nos conceda ejecución. */
-        if (t->run_gate) {
-            xSemaphoreTake(t->run_gate, portMAX_DELAY);
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(10));
-            continue;
-        }
+        /*
+         * Esperar a que el scheduler nos conceda ejecución. Usamos la
+         * notificación de tarea incorporada: ulTaskNotifyTake bloquea hasta
+         * que el dispatcher llame xTaskNotifyGive sobre ESTA tarea. El primer
+         * parámetro pdTRUE limpia la cuenta al recibirla (semántica binaria).
+         */
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
         if (t->state == THREAD_DONE) {
             /* Aun así avisamos para no dejar al dispatcher esperando. */
@@ -128,11 +132,6 @@ void thread_lib_init(void)
             vTaskDelete(t->task);
             t->task = NULL;
         }
-
-        if (t->run_gate) {
-            vSemaphoreDelete(t->run_gate);
-            t->run_gate = NULL;
-        }
     }
 
     memset(g_threads, 0, sizeof(g_threads));
@@ -180,14 +179,6 @@ SimThread *thread_create(void (*entry_step)(void *arg),
             t->task = NULL;
             t->next = NULL;
 
-            /* Compuerta binaria: inicia "tomada" (cuenta 0) -> la tarea espera. */
-            t->run_gate = xSemaphoreCreateBinary();
-
-            if (!t->run_gate) {
-                memset(t, 0, sizeof(*t));
-                return NULL;
-            }
-
             /* Lanzar la tarea real de FreeRTOS para este barco. */
             char name[16];
             snprintf(name, sizeof(name), "ship_%d", t->id);
@@ -202,8 +193,7 @@ SimThread *thread_create(void (*entry_step)(void *arg),
             );
 
             if (ok != pdPASS) {
-                vSemaphoreDelete(t->run_gate);
-                t->run_gate = NULL;
+                t->task = NULL;
                 memset(t, 0, sizeof(*t));
                 return NULL;
             }
@@ -264,8 +254,9 @@ void thread_exit(SimThread *t)
 
 void thread_grant_run(SimThread *t)
 {
-    if (t && t->run_gate) {
-        xSemaphoreGive(t->run_gate);
+    if (t && t->task) {
+        /* Despertar a ESTA tarea concreta mediante su notificación. */
+        xTaskNotifyGive(t->task);
     }
 }
 

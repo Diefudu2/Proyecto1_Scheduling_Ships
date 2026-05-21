@@ -7,9 +7,14 @@
  * - El recurso "canal" se protege con UN mutex recursivo real (g_canal_mutex).
  *   Toda mutación de g_canal (positions[], ship_count, active_dir, flujo,
  *   interrupción) ocurre dentro de canal_lock()/canal_unlock().
- * - La capacidad simultánea del canal se modela con UN semáforo contador real
- *   (g_canal_slots, init = max_ships_in_canal): se toma al entrar y se devuelve
- *   al terminar / apropiar / evacuar.
+ * - El recurso físico del canal es el SLOT (LED): hay LED_CANAL_COUNT (=10)
+ *   sin importar el largo lógico. Cada slot se protege con un semáforo binario
+ *   real (g_slot_sem[]): un barco posee el slot donde está y, al avanzar a otro
+ *   slot, toma el nuevo y devuelve el anterior. Eso limita por sí solo a 10
+ *   barcos simultáneos. El tope configurable (max_ships_in_canal) se valida con
+ *   un entero bajo el mutex, así que NO se usa un semáforo contador aparte ni
+ *   un semáforo por barco: los semáforos solo cuidan recursos físicos y su
+ *   número no crece con la cantidad de barcos.
  * - El AVANCE de cada barco lo ejecuta SU PROPIA TAREA real (canal_step_ship),
  *   pero el dispatcher decide a quién y cuándo conceder ejecución: en
  *   canal_drive_movement() libera la compuerta de cada barco que cruza, en
@@ -59,11 +64,24 @@ static Canal g_canal;
  * Sincronización REAL del recurso canal (FreeRTOS)
  * ---------------------------------------------------------
  *  g_canal_mutex : 1 mutex recursivo. Protege TODA la estructura g_canal.
- *  g_canal_slots : 1 semáforo contador. Cupos simultáneos = max_ships.
+ *  g_slot_sem[]  : 1 semáforo binario POR SLOT FÍSICO del canal. El recurso
+ *                  real es el slot visible (LED): hay LED_CANAL_COUNT (=10) sin
+ *                  importar el largo lógico. "1" = slot libre, "0" = ocupado.
+ *                  Un barco POSEE el semáforo del slot físico donde está. Al
+ *                  avanzar a un slot distinto toma el nuevo y devuelve el
+ *                  anterior; si avanza dentro del mismo slot no cambia nada.
+ *                  Esto limita por sí solo a 10 barcos simultáneos y evita que
+ *                  dos barcos ocupen el mismo punto físico (colisión/rebase).
+ *
+ * NOTA: NO se usa un semáforo contador de cupos: el tope configurable
+ * (max_ships_in_canal) se valida con un entero bajo el mutex, y la capacidad
+ * física la imponen los 10 semáforos de slot. Tampoco hay semáforo por barco
+ * (la concesión del scheduler usa notificación de tarea). Así los semáforos
+ * solo cuidan recursos y su número NO crece con la cantidad de barcos.
  * ========================================================= */
 
 static SemaphoreHandle_t g_canal_mutex = NULL;
-static SemaphoreHandle_t g_canal_slots = NULL;
+static SemaphoreHandle_t g_slot_sem[LED_CANAL_COUNT] = {0};
 
 /* Tope de espera del handshake de paso, para nunca colgar el dispatcher. */
 #define CANAL_STEP_TIMEOUT_MS 250
@@ -134,6 +152,45 @@ void canal_unlock(void)
     if (g_canal_mutex) {
         xSemaphoreGiveRecursive(g_canal_mutex);
     }
+}
+
+/* =========================================================
+ * Semáforos por SLOT FÍSICO (recurso real = slot de LED)
+ * ---------------------------------------------------------
+ * Se invocan SIEMPRE con g_canal_mutex tomado, por lo que la toma con
+ * timeout 0 actúa como bandera atómica del recurso. Un barco posee como mucho
+ * un slot a la vez; al moverse entre slots toma el nuevo y suelta el anterior.
+ * ========================================================= */
+
+static int canal_slot_reserve(int slot)
+{
+    if (slot < 0 || slot >= LED_CANAL_COUNT) {
+        return 0;
+    }
+
+    if (!g_slot_sem[slot]) {
+        return 0;
+    }
+
+    return (xSemaphoreTake(g_slot_sem[slot], 0) == pdTRUE);
+}
+
+static void canal_slot_release(int slot)
+{
+    if (slot < 0 || slot >= LED_CANAL_COUNT) {
+        return;
+    }
+
+    if (g_slot_sem[slot]) {
+        xSemaphoreGive(g_slot_sem[slot]);
+    }
+}
+
+/* Libera el slot físico que ocupa la posición lógica indicada. */
+static void canal_release_slot_of_position(int position)
+{
+    int slot = canal_position_to_led_slot(position);
+    canal_slot_release(slot);
 }
 
 /* =========================================================
@@ -490,6 +547,22 @@ void canal_init(void)
         g_canal_mutex = xSemaphoreCreateRecursiveMutex();
     }
 
+    /*
+     * Crear los semáforos de slot físico una sola vez (uno por slot de LED, en
+     * total LED_CANAL_COUNT = 10). Se reutilizan tras RESET; su estado
+     * "libre/ocupado" se reinicia en canal_apply_config(). Cada uno es binario
+     * e inicia en "libre".
+     */
+    for (int i = 0; i < LED_CANAL_COUNT; i++) {
+        if (!g_slot_sem[i]) {
+            g_slot_sem[i] = xSemaphoreCreateBinary();
+
+            if (g_slot_sem[i]) {
+                xSemaphoreGive(g_slot_sem[i]); /* inicia como "libre" */
+            }
+        }
+    }
+
     canal_lock();
 
     memset(&g_canal, 0, sizeof(g_canal));
@@ -537,16 +610,16 @@ int canal_apply_config(void)
     }
 
     /*
-     * Semáforo contador de cupos del canal (capacidad del "CPU").
-     * Se recrea para reflejar el max_ships actual; solo ocurre con el canal
-     * vacío (ship_count==0), por lo que no hay tomas pendientes que perder.
+     * Reiniciar cada semáforo de slot físico a "libre": drenar cualquier toma
+     * residual (no bloqueante) y garantizar cuenta 1. Solo ocurre con el canal
+     * vacío, así que no hay barcos que dependan del estado previo.
      */
-    if (g_canal_slots) {
-        vSemaphoreDelete(g_canal_slots);
-        g_canal_slots = NULL;
+    for (int i = 0; i < LED_CANAL_COUNT; i++) {
+        if (g_slot_sem[i]) {
+            xSemaphoreTake(g_slot_sem[i], 0);
+            xSemaphoreGive(g_slot_sem[i]);
+        }
     }
-
-    g_canal_slots = xSemaphoreCreateCounting(g_canal.max_ships, g_canal.max_ships);
 
     canal_reset_flow_state();
 
@@ -565,6 +638,7 @@ int canal_try_enter(Ship *ship)
 
     int ok = 0;
     int took_slot = 0;
+    int reserved_slot = -1;
 
     canal_lock();
 
@@ -627,12 +701,18 @@ int canal_try_enter(Ship *ship)
             break;
         }
 
-        /* Reservar un cupo del canal (no bloqueante). Si está lleno, no entra. */
-        if (!g_canal_slots || xSemaphoreTake(g_canal_slots, 0) != pdTRUE) {
+        /*
+         * Reservar el SLOT FÍSICO de entrada (no bloqueante). Si ya está
+         * ocupado, no entra. Esto, junto con el chequeo ship_count >= max_ships
+         * de más arriba, cubre tanto la capacidad física (10 slots) como el
+         * tope configurable, sin necesitar un semáforo contador aparte.
+         */
+        if (!canal_slot_reserve(entry_slot)) {
             break;
         }
 
         took_slot = 1;
+        reserved_slot = entry_slot;
 
         g_canal.positions[entry_pos] = ship;
         g_canal.ship_count++;
@@ -678,9 +758,9 @@ int canal_try_enter(Ship *ship)
         ok = 1;
     } while (0);
 
-    /* Si algo falló después de reservar el cupo, devolverlo. */
-    if (!ok && took_slot && g_canal_slots) {
-        xSemaphoreGive(g_canal_slots);
+    /* Si algo falló después de reservar el slot de entrada, devolverlo. */
+    if (!ok && took_slot) {
+        canal_slot_release(reserved_slot);
     }
 
     canal_unlock();
@@ -698,11 +778,7 @@ static void canal_finish_ship(Ship *ship)
 
     if (canal_valid_position(pos) && g_canal.positions[pos] == ship) {
         g_canal.positions[pos] = NULL;
-    }
-
-    /* Liberar el cupo del canal. */
-    if (g_canal_slots) {
-        xSemaphoreGive(g_canal_slots);
+        canal_release_slot_of_position(pos);
     }
 
     if (g_canal.ship_count > 0) {
@@ -755,11 +831,7 @@ int canal_interrupt_activate(void)
         ship->thread->saved_position = pos;
 
         g_canal.positions[pos] = NULL;
-
-        /* Devolver el cupo del canal del barco evacuado. */
-        if (g_canal_slots) {
-            xSemaphoreGive(g_canal_slots);
-        }
+        canal_release_slot_of_position(pos);
 
         if (g_canal.ship_count > 0) {
             g_canal.ship_count--;
@@ -832,10 +904,7 @@ int canal_preempt_ship(Ship *ship)
         ship->thread->saved_position = pos;
 
         g_canal.positions[pos] = NULL;
-
-        if (g_canal_slots) {
-            xSemaphoreGive(g_canal_slots);
-        }
+        canal_release_slot_of_position(pos);
 
         if (g_canal.ship_count > 0) {
             g_canal.ship_count--;
@@ -1059,12 +1128,22 @@ static int canal_advance_one_position(Ship *ship)
     }
 
     /*
-     * Movimiento de la franja: como todo este avance ocurre bajo el mutex del
-     * canal y el dispatcher serializa los pasos (espera g_step_done entre
-     * barcos), el propio arreglo positions[] es la fuente de verdad y basta
-     * para impedir colisiones y rebases. Ya no se requieren semáforos por
-     * posición.
+     * Movimiento de la franja. El recurso real es el SLOT FÍSICO (LED):
+     * - Si el destino cae en el MISMO slot físico que el origen, el barco ya
+     *   posee ese slot: solo se actualiza positions[], sin tocar semáforos.
+     * - Si cae en un slot DISTINTO, se reserva el slot destino y, si se logra,
+     *   se devuelve el slot origen. Así el barco posee siempre exactamente el
+     *   slot donde está, nunca dos a la vez. Todo bajo el mutex del canal y con
+     *   pasos serializados por el dispatcher (no hay rebases ni colisiones).
      */
+    if (next_slot != current_slot) {
+        if (!canal_slot_reserve(next_slot)) {
+            return 0; /* el slot físico destino no está libre: no avanzar */
+        }
+
+        canal_slot_release(current_slot);
+    }
+
     g_canal.positions[current_pos] = NULL;
     g_canal.positions[next_pos] = ship;
     ship->position = next_pos;
